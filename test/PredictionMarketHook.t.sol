@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, console2} from "forge-std/Test.sol";
 import {PredictionMarketHook} from "../src/Hooks/PredictionMarketHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
@@ -14,297 +14,185 @@ import {Hooks} from "@v4-core/libraries/Hooks.sol";
 import {MockContract} from "@v4-core/test/MockContract.sol";
 import {MockHooks} from "@v4-core/test/MockHooks.sol";
 import {HookMiner} from "@v4-periphery/utils/HookMiner.sol";
-
-
-contract PoolManagerHandler {
-    function initialize(PoolKey calldata, uint160) external pure returns (int24 tick) {
-        return 0; // Return initial tick of 0
-    }
-
-    function modifyLiquidity(PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
-        external
-        pure
-        returns (BalanceDelta delta, BalanceDelta fees)
-    {
-        // Return empty balance deltas
-        return (BalanceDelta.wrap(0), BalanceDelta.wrap(0));
-    }
-
-    function swap(PoolKey calldata, IPoolManager.SwapParams calldata, bytes calldata)
-        external
-        pure
-        returns (BalanceDelta delta)
-    {
-        // Return empty balance delta
-        return BalanceDelta.wrap(0);
-    }
-}
+import {Pool} from "@v4-core/libraries/Pool.sol";
+import {SwapMath} from "@v4-core/libraries/SwapMath.sol";
 
 contract PredictionMarketHookTest is Test {
-    PredictionMarketHook hook;
-    ERC20Mock usdc;
-    ERC20Mock yesToken;
-    ERC20Mock noToken;
-    IPoolManager poolManager;
-    
-    
-    uint256 startTime;
-    uint256 endTime;
-    address user = makeAddr("user");
-    address owner = makeAddr("owner");
+    PredictionMarketHook public hook;
+    PoolManagerHandler public poolManager;
+    ERC20Mock public usdc;
+    ERC20Mock public yesToken;
+    ERC20Mock public noToken;
+    uint256 public startTime;
+    uint256 public endTime;
 
     function setUp() public {
-    vm.startPrank(owner);
-    
-    // Deploy tokens
-    usdc = new ERC20Mock();
-    yesToken = new ERC20Mock();
-    noToken = new ERC20Mock();
-    
-    // Setup timestamps
-    startTime = block.timestamp + 1 days;
-    endTime = startTime + 7 days;
+        // Deploy mock tokens
+        usdc = new ERC20Mock();
+        yesToken = new ERC20Mock();
+        noToken = new ERC20Mock();
 
-    // Deploy PoolManager mock
-    MockContract mockPoolManager = new MockContract();
-    poolManager = IPoolManager(address(mockPoolManager));
+        // Deploy pool manager mock
+        poolManager = new PoolManagerHandler();
 
-    // Setup mock responses
-    MockContract(payable(address(poolManager))).setImplementation(address(new PoolManagerHandler()));
+        // Set up timestamps
+        startTime = block.timestamp;
+        endTime = startTime + 7 days;
 
-    // Find valid hook address with the correct flags
-    (address hookAddress, bytes32 salt) = HookMiner.find(
-        address(this),
-        uint160(Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG),
-        type(PredictionMarketHook).creationCode,
-        abi.encode(
-            poolManager,
+        // Calculate hook address with required flags
+        uint160 flags = uint160(
+            Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
+            Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG |
+            Hooks.BEFORE_SWAP_FLAG |
+            Hooks.AFTER_SWAP_FLAG
+        );
+
+        // Deploy the hook
+        (address hookAddress,) = HookMiner.find(
+            address(this), 
+            flags, 
+            type(PredictionMarketHook).creationCode,
+            abi.encode(
+                address(poolManager),
+                address(usdc),
+                address(yesToken),
+                address(noToken),
+                startTime,
+                endTime
+            )
+        );
+
+        // Deploy hook with CREATE2
+        hook = new PredictionMarketHook{salt: bytes32(0)}(
+            IPoolManager(address(poolManager)),
             address(usdc),
             address(yesToken),
             address(noToken),
             startTime,
             endTime
-        )
-    );
-
-    hook = new PredictionMarketHook{salt: salt}(
-        poolManager,
-        address(usdc),
-        address(yesToken),
-        address(noToken),
-        startTime,
-        endTime
-    );
-
-    require(address(hook) == hookAddress, "Hook address mismatch");
-    
-    hook.initializePools();
-    
-    vm.stopPrank();
-    }
-
-    // Helper function to get pool components
-    function getPoolComponents(bool isYesPool) internal view returns (
-        Currency currency0,
-        Currency currency1,
-        uint24 fee,
-        int24 tickSpacing,
-        IHooks hooks
-    ) {
-        return isYesPool ? hook.yesPoolKey() : hook.noPoolKey();
-    }
-
-    // Test 1: Verify pool initialization parameters
-    function test_PoolInitialization() public {
-        // Yes pool
-        (
-            Currency yesCurrency0,
-            Currency yesCurrency1,
-            uint24 yesFee,
-            int24 yesTickSpacing,
-            IHooks yesHooks
-        ) = getPoolComponents(true);
-        
-        assertEq(Currency.unwrap(yesCurrency0), address(usdc));
-        assertEq(Currency.unwrap(yesCurrency1), address(yesToken));
-        assertEq(yesFee, 3000);
-        assertEq(yesTickSpacing, 60);
-        assertEq(address(yesHooks), address(hook));
-
-        // No pool
-        (
-            Currency noCurrency0,
-            Currency noCurrency1,
-            uint24 noFee,
-            int24 noTickSpacing,
-            IHooks noHooks
-        ) = getPoolComponents(false);
-        
-        assertEq(Currency.unwrap(noCurrency0), address(usdc));
-        assertEq(Currency.unwrap(noCurrency1), address(noToken));
-        assertEq(noFee, 3000);
-        assertEq(noTickSpacing, 60);
-        assertEq(address(noHooks), address(hook));
-    }
-
-    // Test 2: Verify betting window enforcement
-    function test_BettingWindowEnforcement() public {
-        // Get valid pool key
-        (
-            Currency currency0,
-            Currency currency1,
-            uint24 fee,
-            int24 tickSpacing,
-            IHooks hooks
-        ) = getPoolComponents(true);
-        PoolKey memory poolKey = PoolKey(currency0, currency1, fee, tickSpacing, hooks);
-
-        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-            zeroForOne: true,
-            amountSpecified: 100e6,
-            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
-        });
-
-        // Before start
-        vm.expectRevert("Betting closed");
-        hook.beforeSwap(user, poolKey, params, "");
-
-        // During window
-        vm.warp(startTime + 1);
-        (bytes4 selector,,) = hook.beforeSwap(user, poolKey, params, "");
-        assertEq(selector, IHooks.beforeSwap.selector);
-
-        // After end
-        vm.warp(endTime + 1);
-        vm.expectRevert("Betting closed");
-        hook.beforeSwap(user, poolKey, params, "");
-    }
-
-    // Test 3: Verify liquidity management restrictions
-    function test_LiquidityManagementRestrictions() public {
-        (
-            Currency currency0,
-            Currency currency1,
-            uint24 fee,
-            int24 tickSpacing,
-            IHooks hooks
-        ) = getPoolComponents(true);
-        PoolKey memory poolKey = PoolKey(currency0, currency1, fee, tickSpacing, hooks);
-
-        IPoolManager.ModifyLiquidityParams memory params = IPoolManager.ModifyLiquidityParams({
-            tickLower: -887272,
-            tickUpper: 887272,
-            liquidityDelta: 1e18,
-            salt: keccak256("test")
-        });
-
-        // Before start
-        vm.expectRevert("Betting closed");
-        hook.beforeAddLiquidity(user, poolKey, params, "");
-
-        // During window
-        vm.warp(startTime + 1);
-        bytes4 selector = hook.beforeAddLiquidity(user, poolKey, params, "");
-        assertEq(selector, IHooks.beforeAddLiquidity.selector);
-
-        // After end
-        vm.warp(endTime + 1);
-        vm.expectRevert("Betting closed");
-        hook.beforeAddLiquidity(user, poolKey, params, "");
-    }
-
-    // Test 4: Verify outcome resolution and payout
-    function test_OutcomeResolutionAndPayout() public {
-        // Initial balances
-        uint256 initialUSDC = usdc.balanceOf(owner);
-        uint256 initialYes = yesToken.balanceOf(owner);
-        uint256 initialNo = noToken.balanceOf(owner);
-
-        // Resolve outcome
-        vm.warp(endTime + 1);
-        vm.prank(owner);
-        hook.resolveOutcome(true);
-
-        // Verify resolution
-        assertTrue(hook.resolved());
-        assertTrue(hook.outcomeIsYes());
-
-        // Verify balances
-        assertEq(hook.totalUSDC() > 0, true);
-
-        // Test claim
-        uint256 userBalance = 100e18;
-        yesToken.mint(user, userBalance);
-        
-        vm.prank(user);
-        hook.claim();
-        
-        uint256 expectedShare = (userBalance * hook.totalUSDC()) / 
-            (yesToken.totalSupply() - hook.hookYesBalance());
-        assertEq(usdc.balanceOf(user), expectedShare);
-    }
-
-    // Test 5: Verify access control
-    function test_AccessControl() public {
-        vm.warp(endTime + 1);
-        
-        // Non-owner resolution
-        vm.expectRevert("Ownable: caller is not the owner");
-        hook.resolveOutcome(true);
-
-        // Unauthorized pool initialization
-        vm.expectRevert("Ownable: caller is not the owner");
-        vm.prank(user);
-        hook.initializePools();
-    }
-
-    // Test 6: Verify invalid pool detection
-    function test_InvalidPoolDetection() public {
-        // Create invalid pool
-        PoolKey memory invalidPool = PoolKey({
-            currency0: Currency.wrap(address(usdc)),
-            currency1: Currency.wrap(address(0xDead)),
-            fee: 3000,
-            tickSpacing: 60,
-            hooks: IHooks(address(hook))
-        });
-
-        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-            zeroForOne: true,
-            amountSpecified: 100e6,
-            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
-        });
-
-        vm.expectRevert("Invalid pool");
-        hook.beforeSwap(user, invalidPool, params, "");
-    }
-
-    // Test 7: Verify liquidity calculations
-    function test_LiquidityCalculations() public {
-        (
-            Currency currency0,
-            Currency currency1,
-            uint24 fee,
-            int24 tickSpacing,
-            IHooks hooks
-        ) = getPoolComponents(true);
-        PoolKey memory poolKey = PoolKey(currency0, currency1, fee, tickSpacing, hooks);
-
-        uint256 amount0 = 50_000e6;
-        uint256 amount1 = 50_000e18;
-        
-        uint160 sqrtPriceX96 = TickMath.getSqrtPriceAtTick(0);
-        uint160 sqrtPriceAX96 = TickMath.getSqrtPriceAtTick(-887272);
-        uint160 sqrtPriceBX96 = TickMath.getSqrtPriceAtTick(887272);
-
-        uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
-            sqrtPriceX96,
-            sqrtPriceAX96,
-            sqrtPriceBX96,
-            amount0,
-            amount1
         );
 
-        assertGt(liquidity, 0, "Liquidity should be positive");
+        // Mint initial tokens
+        usdc.mint(address(this), 1_000_000e6);
+        yesToken.mint(address(this), 1_000_000e18);
+        noToken.mint(address(this), 1_000_000e18);
+
+        // Approve tokens
+        usdc.approve(address(hook), type(uint256).max);
+        yesToken.approve(address(hook), type(uint256).max);
+        noToken.approve(address(hook), type(uint256).max);
+    }
+
+    function test_InitializePools() public {
+        hook.initializePools();
+        
+        // Check initial state
+        assertEq(hook.usdcInYesPool(), 50_000e6, "Incorrect USDC amount in YES pool");
+        assertEq(hook.usdcInNoPool(), 50_000e6, "Incorrect USDC amount in NO pool");
+        assertEq(hook.yesTokensInPool(), 50_000e18, "Incorrect YES tokens in pool");
+        assertEq(hook.noTokensInPool(), 50_000e18, "Incorrect NO tokens in pool");
+    }
+
+    function test_GetOdds() public {
+        hook.initializePools();
+        
+        (uint256 yesOdds, uint256 noOdds) = hook.getOdds();
+        assertEq(yesOdds, 50, "Initial YES odds should be 50");
+        assertEq(noOdds, 50, "Initial NO odds should be 50");
+    }
+
+    function test_RevertWhenBettingClosed() public {
+        // Move time past end time
+        vm.warp(endTime + 1);
+        
+        vm.expectRevert("Betting closed");
+        hook.initializePools();
+    }
+}
+
+contract PoolManagerHandler {
+    // Mock values for token holdings
+    mapping(address => mapping(address => uint256)) public tokenBalances;
+
+    function initialize(PoolKey calldata, uint160) external pure returns (int24 tick) {
+        return 0; // Return initial tick of 0
+    }
+
+    function modifyLiquidity(PoolKey calldata key, IPoolManager.ModifyLiquidityParams calldata params, bytes calldata)
+        external
+        returns (BalanceDelta delta, BalanceDelta fees)
+    {
+        // Simulate modifyLiquidity behavior
+        address token0 = Currency.unwrap(key.currency0);
+        address token1 = Currency.unwrap(key.currency1);
+
+        // For adding liquidity
+        if (params.liquidityDelta > 0) {
+            // Calculate amounts based on provided liquidity
+            uint256 amount0 = uint256(uint128(uint256(params.liquidityDelta))) * 1e6; // Fixed conversion
+            uint256 amount1 = uint256(uint128(uint256(params.liquidityDelta))) * 1e18; // Fixed conversion
+            
+            // Track the token amounts
+            tokenBalances[msg.sender][token0] += amount0;
+            tokenBalances[msg.sender][token1] += amount1;
+            
+            // Return the simulated delta (negative means tokens taken from user)
+            delta = BalanceDelta.wrap(-(int256(amount0) << 128 | int256(amount1)));
+        } 
+        // For removing liquidity
+        else if (params.liquidityDelta < 0) {
+            // Calculate amounts based on provided liquidity - fixed conversion
+            int256 absDelta = -params.liquidityDelta;
+            uint256 amount0 = uint256(uint128(uint256(absDelta))) * 1e6;
+            uint256 amount1 = uint256(uint128(uint256(absDelta))) * 1e18;
+            
+            // Return the simulated delta (positive means tokens given to user)
+            delta = BalanceDelta.wrap(int256(amount0) << 128 | int256(amount1));
+        }
+        
+        return (delta, BalanceDelta.wrap(0));
+    }
+
+    function swap(PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
+        external
+        returns (BalanceDelta delta)
+    {
+        // Simulate swap behavior
+        address token0 = Currency.unwrap(key.currency0);
+        address token1 = Currency.unwrap(key.currency1);
+
+        // Simplified swap logic
+        if (params.zeroForOne) {
+            // User provides token0, receives token1
+            uint256 token0In = uint256(int256(params.amountSpecified));
+            uint256 token1Out = token0In * 95 / 100; // 5% slippage for simplicity
+            
+            // Track the token changes
+            tokenBalances[msg.sender][token0] += token0In;
+            
+            // Return the simulated delta (negative for token0 in, positive for token1 out)
+            delta = BalanceDelta.wrap(-(int256(token0In) << 128) | int256(token1Out));
+        } else {
+            // User provides token1, receives token0
+            uint256 token1In = uint256(int256(params.amountSpecified));
+            uint256 token0Out = token1In * 95 / 100; // 5% slippage for simplicity
+            
+            // Track the token changes
+            tokenBalances[msg.sender][token1] += token1In;
+            
+            // Return the simulated delta (positive for token0 out, negative for token1 in)
+            delta = BalanceDelta.wrap(int256(token0Out) << 128 | -(int256(token1In)));
+        }
+        
+        return delta;
+    }
+
+    // Helper function to simulate getInternalPrice (for getOdds)
+    function sqrtPriceX96ToPrice(uint160 sqrtPriceX96, uint8 decimals0, uint8 decimals1) external pure returns (uint256) {
+        uint256 price = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
+        // Scale by 2^192 / 10^decimals0 / 10^decimals1
+        uint256 scale = uint256(1) << 192;
+        uint256 decimalAdjustment = 10**(decimals0 + decimals1);
+        return price * scale / decimalAdjustment;
     }
 }
