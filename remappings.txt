@@ -1,11 +1,11 @@
 @uniswap/v4-core/=lib/v4-core/
 forge-gas-snapshot/=lib/v4-core/lib/forge-gas-snapshot/src/
-forge-std/=lib/v4-core/lib/forge-std/src/
+forge-std/=lib/forge-std/src/
 permit2/=lib/v4-periphery/lib/permit2/
-solmate/=lib/v4-core/lib/solmate/
-v4-core/=lib/v4-core/
+solmate/=lib/solmate/src/
+v4-core/=lib/v4-core/src
 v4-periphery/=lib/v4-periphery/
-@openzeppelin/=lib/v4-core/lib/openzeppelin-contracts/
+@openzeppelin/=lib/openzeppelin-contracts/
 @openzeppelin/uniswap-hooks=lib/uniswap-hooks/
 @solmate/=lib/solmate/src/
 v4-core/=lib/uniswap-hooks/lib/v4-core/src/
@@ -16,4 +16,3 @@ v4-periphery/=lib/uniswap-hooks/lib/v4-periphery/contracts/
 @openzeppelin/=node_modules/@openzeppelin/
 @v4-test/=lib/v4-test/src/
 forge-std/=lib/forge-std/src/
-
