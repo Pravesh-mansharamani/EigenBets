@@ -7,3 +7,13 @@ v4-core/=lib/v4-core/
 v4-periphery/=lib/v4-periphery/
 @openzeppelin/=lib/v4-core/lib/openzeppelin-contracts/
 @openzeppelin/uniswap-hooks=lib/uniswap-hooks/
+@solmate/=lib/solmate/src/
+v4-core/=lib/uniswap-hooks/lib/v4-core/src/
+v4-periphery/=lib/uniswap-hooks/lib/v4-periphery/contracts/
+@openzeppelin/=node_modules/@openzeppelin/
+@v4-core=lib/v4-core/src
+@v4-periphery=lib/v4-periphery/src
+@openzeppelin/=node_modules/@openzeppelin/
+@v4-test/=lib/v4-test/src/
+forge-std/=lib/forge-std/src/
+
