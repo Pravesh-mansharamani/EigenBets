@@ -1,10 +1,15 @@
 import fetch from 'node-fetch';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const HYPERBOLIC_API_KEY = process.env.HYPERBOLIC_API_KEY;
 
 async function makeHyperbolicRequest(inputString) {
     const url = 'https://api.hyperbolic.xyz/v1/chat/completions';
     const headers = {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZXJtb3R0Y29sZUBnbWFpbC5jb20iLCJpYXQiOjE3NDA2NDcxOTd9.GS3_-4c78vnl0K5RmiBLE4HJuQmKxdEodYDv1o48vsk'
+        'Authorization': `Bearer ${HYPERBOLIC_API_KEY}`
     };
 
     const messages = [
