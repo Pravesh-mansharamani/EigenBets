@@ -4,3 +4,12 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.24"
 script = "script"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+
+[rpc_endpoints]
+base_sepolia = "https://base-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+
+[etherscan]
+base_sepolia = { key = "${ETHERSCAN_API_KEY}" }
