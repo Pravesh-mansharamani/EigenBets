@@ -197,6 +197,8 @@ class _TransactionHistoryWidgetState extends State<TransactionHistoryWidget> {
         return Icons.arrow_upward;
       case TransactionType.swap:
         return Icons.swap_horiz;
+      default:
+        return Icons.history; // Default case
     }
   }
 
@@ -210,6 +212,8 @@ class _TransactionHistoryWidgetState extends State<TransactionHistoryWidget> {
         return theme.colorScheme.error;
       case TransactionType.swap:
         return Colors.purple;
+      default:
+        return theme.colorScheme.secondary; // Default case
     }
   }
 
@@ -223,6 +227,8 @@ class _TransactionHistoryWidgetState extends State<TransactionHistoryWidget> {
         return '-';
       case TransactionType.swap:
         return '';
+      default:
+        return ''; // Default case
     }
   }
 
@@ -319,6 +325,8 @@ class _TransactionHistoryWidgetState extends State<TransactionHistoryWidget> {
         return 'Withdrawal';
       case TransactionType.swap:
         return 'Swap';
+      default:
+        return 'Transaction'; // Default case
     }
   }
 }

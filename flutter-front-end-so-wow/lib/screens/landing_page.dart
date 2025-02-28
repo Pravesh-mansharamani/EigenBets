@@ -38,7 +38,7 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
     'Reddit': 'https://www.reddit.com/r/EigenLayer/?rdt=36109',
   };
 
-  final String _contactEmail = 'dermottcole@gmail.com';
+  final String _contactEmail = 'eigenbet@example.com';
   
   @override
   void initState() {
@@ -226,17 +226,7 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
             ],
           ),
           
-          // Menu items - hidden on small screens
-          if (MediaQuery.of(context).size.width > 800)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildNavItem('Markets', theme, onTap: () => _navigateTo('markets')),
-                _buildNavItem('About', theme, onTap: () => _navigateTo('about')),
-                _buildNavItem('Documentation', theme, onTap: () => _navigateTo('docs')),
-                _buildNavItem('Blog', theme, onTap: () => _navigateTo('blog')),
-              ],
-            ),
+          // No menu items until implementation is complete
           
           // Action buttons
           Row(
@@ -291,196 +281,326 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
             right: -50 - _scrollPosition * 0.1,
             top: -50,
             bottom: -50,
-            child: ShaderMask(
-              shaderCallback: (bounds) {
-                return LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                   colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.8),
+                    Color(0xFF6C5CE7).withOpacity(0.3),
+                    Color(0xFF1E1E2E).withOpacity(0.6),
                   ],
-                  stops: const [0.5, 0.9],
-                ).createShader(bounds);
-              },
-              blendMode: BlendMode.dstIn,
-              // Use a Container with gradient instead of image that's missing
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFF6C5CE7).withOpacity(0.3),
-                      Color(0xFF1E1E2E).withOpacity(0.6),
-                    ],
-                  ),
                 ),
               ),
             ),
           ),
           
-          // Hero content
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Animated text intro
-              SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, -0.2),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: _textController,
-                  curve: Curves.easeOutQuart,
-                )),
-                child: FadeTransition(
-                  opacity: Tween<double>(begin: 0.0, end: 1.0).animate(
-                    CurvedAnimation(
-                      parent: _textController,
-                      curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
-                    ),
-                  ),
-                  child: RichText(
-                    text: TextSpan(
-                      children: [
-                        TextSpan(
-                          text: 'The future of ',
-                          style: theme.textTheme.displayMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w300,
-                            height: 1.1,
-                          ),
-                        ),
-                        TextSpan(
-                          text: 'prediction markets',
-                          style: theme.textTheme.displayMedium?.copyWith(
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                            height: 1.1,
-                          ),
-                        ),
-                        TextSpan(
-                          text: ' is here.',
-                          style: theme.textTheme.displayMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w300,
-                            height: 1.1,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Subtitle
-              SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, -0.2),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: _textController,
-                  curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
-                )),
-                child: FadeTransition(
-                  opacity: Tween<double>(begin: 0.0, end: 1.0).animate(
-                    CurvedAnimation(
-                      parent: _textController,
-                      curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
-                    ),
-                  ),
-                  child: SizedBox(
-                    width: size.width * 0.6,
-                    child: Text(
-                      'Trade with confidence on the most accurate prediction market platform powered by blockchain technology and AI-driven analytics.',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        color: Colors.white.withOpacity(0.7),
-                        fontWeight: FontWeight.w300,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              
-              const SizedBox(height: 48),
-              
-              // CTA buttons
-              SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, -0.2),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: _textController,
-                  curve: const Interval(0.4, 0.9, curve: Curves.easeOut),
-                )),
-                child: FadeTransition(
-                  opacity: Tween<double>(begin: 0.0, end: 1.0).animate(
-                    CurvedAnimation(
-                      parent: _textController,
-                      curve: const Interval(0.4, 0.9, curve: Curves.easeOut),
-                    ),
-                  ),
-                  child: Row(
+          // Conditional content based on screen width
+          if (size.width > 900)
+            // Desktop layout
+            Row(
+              children: [
+                // Left content - Text
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ElevatedButton(
-                        onPressed: () => setState(() => _showConnect = true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 32,
-                            vertical: 20,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text('Get Started'),
-                      ),
-                      const SizedBox(width: 16),
-                      TextButton(
-                        onPressed: () => _navigateTo('learn-more'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 32,
-                            vertical: 20,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Text('Learn More'),
-                            const SizedBox(width: 8),
-                            Icon(
-                              Icons.arrow_forward,
-                              size: 16,
-                              color: theme.colorScheme.primary,
+                      // Animated text intro
+                      SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, -0.2),
+                          end: Offset.zero,
+                        ).animate(CurvedAnimation(
+                          parent: _textController,
+                          curve: Curves.easeOutQuart,
+                        )),
+                        child: FadeTransition(
+                          opacity: Tween<double>(begin: 0.0, end: 1.0).animate(
+                            CurvedAnimation(
+                              parent: _textController,
+                              curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
                             ),
-                          ],
+                          ),
+                          child: RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'The future of ',
+                                  style: theme.textTheme.displayMedium?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w300,
+                                    height: 1.1,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: 'prediction markets',
+                                  style: theme.textTheme.displayMedium?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.bold,
+                                    height: 1.1,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: ' is here.',
+                                  style: theme.textTheme.displayMedium?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w300,
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 24),
+                      
+                      // Subtitle
+                      SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, -0.2),
+                          end: Offset.zero,
+                        ).animate(CurvedAnimation(
+                          parent: _textController,
+                          curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
+                        )),
+                        child: FadeTransition(
+                          opacity: Tween<double>(begin: 0.0, end: 1.0).animate(
+                            CurvedAnimation(
+                              parent: _textController,
+                              curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
+                            ),
+                          ),
+                          child: SizedBox(
+                            width: size.width * 0.5,
+                            child: Text(
+                              'Trade on prediction markets with confidence using EigenLayer AVS for trusted and verifiable outcomes.',
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                color: Colors.white.withOpacity(0.7),
+                                fontWeight: FontWeight.w300,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 48),
+                      
+                      // CTA buttons
+                      SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, -0.2),
+                          end: Offset.zero,
+                        ).animate(CurvedAnimation(
+                          parent: _textController,
+                          curve: const Interval(0.4, 0.9, curve: Curves.easeOut),
+                        )),
+                        child: FadeTransition(
+                          opacity: Tween<double>(begin: 0.0, end: 1.0).animate(
+                            CurvedAnimation(
+                              parent: _textController,
+                              curve: const Interval(0.4, 0.9, curve: Curves.easeOut),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              ElevatedButton(
+                                onPressed: () => setState(() => _showConnect = true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: theme.colorScheme.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 32,
+                                    vertical: 20,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: const Text('Get Started'),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
+                
+                // Right content - Graphic
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    padding: const EdgeInsets.all(30),
+                    margin: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.verified_user_outlined,
+                          size: 80,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'AVS Verification',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Powered by EigenLayer',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withOpacity(0.7),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else
+            // Mobile layout
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Title
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'The future of ',
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w300,
+                          height: 1.1,
+                        ),
+                      ),
+                      TextSpan(
+                        text: 'prediction markets',
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                          height: 1.1,
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' is here.',
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w300,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // Subtitle
+                Text(
+                  'Trade on prediction markets with confidence using EigenLayer AVS for trusted and verifiable outcomes.',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: Colors.white.withOpacity(0.7),
+                    fontWeight: FontWeight.w300,
+                    height: 1.4,
+                  ),
+                ),
+                
+                const SizedBox(height: 40),
+                
+                // CTA button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => setState(() => _showConnect = true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 20,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text('Get Started'),
+                  ),
+                ),
+                
+                const SizedBox(height: 40),
+                
+                // Simple graphic
+                Center(
+                  child: Container(
+                    height: 180,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.verified_user_outlined,
+                          size: 50,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'AVS Verification',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
   
+  // We don't need this method anymore as we've inlined the graphic widgets
+  // in the _buildHeroSection method directly
+
   Widget _buildFeaturesSection(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 100),
       child: Column(
         children: [
           Text(
-            'Why Choose Nexus Predictions',
+            'Why Choose EigenBet',
             style: theme.textTheme.headlineMedium?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -488,16 +608,16 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
           ),
           const SizedBox(height: 16),
           Text(
-            'Built for traders, by traders',
+            'Built for secure prediction markets',
             style: theme.textTheme.titleMedium?.copyWith(
               color: Colors.white.withOpacity(0.7),
             ),
           ),
           const SizedBox(height: 80),
           
-          // Feature grid
+          // Feature grid - ensure even number of cards that divide well
           GridView.count(
-            crossAxisCount: MediaQuery.of(context).size.width > 900 ? 3 : 
+            crossAxisCount: MediaQuery.of(context).size.width > 900 ? 2 : 
                            MediaQuery.of(context).size.width > 600 ? 2 : 1,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -511,15 +631,9 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
                 theme,
               ),
               _buildFeatureCard(
-                'AI-Powered Insights',
-                'Leverage advanced analytics and sentiment analysis to make informed decisions.',
-                Icons.psychology_outlined,
-                theme,
-              ),
-              _buildFeatureCard(
-                'Zero-Knowledge Proofs',
-                'Confidently trade with cryptographically verified outcomes ensuring fair resolution.',
-                Icons.verified_outlined,
+                'AVS Integration',
+                'Leverage Eigen Layer AVS verification for secure and reliable market resolution.',
+                Icons.verified_user_outlined,
                 theme,
               ),
               _buildFeatureCard(
@@ -529,15 +643,9 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
                 theme,
               ),
               _buildFeatureCard(
-                'Multi-Chain Support',
-                'Trade seamlessly across Ethereum, Base, and Polygon with unified liquidity.',
+                'Base Network',
+                'Built on Base for high-speed, low-cost transactions with Ethereum security.',
                 Icons.hub_outlined,
-                theme,
-              ),
-              _buildFeatureCard(
-                'Social Trading',
-                'Follow top traders, share strategies, and collaborate with the community.',
-                Icons.people_outlined,
                 theme,
               ),
             ],
@@ -614,7 +722,7 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
       child: Column(
         children: [
           Text(
-            'Market Stats',
+            'Development Stats',
             style: theme.textTheme.headlineMedium?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -624,9 +732,9 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildStatCard('\$14.5M', 'Trading Volume', theme),
-              _buildStatCard('12K+', 'Active Markets', theme),
-              _buildStatCard('98%', 'Resolution Rate', theme),
+              _buildStatCard('Demo', 'Project Status', theme),
+              _buildStatCard('EigenLayer', 'AVS Integration', theme),
+              _buildStatCard('24hrs', 'Hackathon Build', theme),
             ],
           ),
           const SizedBox(height: 60),
@@ -692,7 +800,7 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
           ),
           const SizedBox(height: 20),
           Text(
-            'Connect your wallet and start trading on the most accurate prediction markets.',
+            'Connect your wallet and try our demo prediction markets with EigenLayer AVS.',
             textAlign: TextAlign.center,
             style: theme.textTheme.titleMedium?.copyWith(
               color: Colors.white.withOpacity(0.7),
@@ -754,7 +862,7 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      'The next generation prediction market platform that combines blockchain technology with advanced analytics.',
+                      'A prediction market platform powered by EigenLayer AVS for verified market outcomes.',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: Colors.white.withOpacity(0.7),
                         height: 1.6,
@@ -777,28 +885,12 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
                 ),
               ),
               if (MediaQuery.of(context).size.width > 700) ...[
-                // Company links
+                // Demo links
                 Expanded(
                   child: _footerLinks(
-                    'Company',
+                    'Demo',
                     [
-                      FooterLinkItem('About Us', onTap: () => _navigateTo('about')),
-                      FooterLinkItem('Team', onTap: () => _navigateTo('team')),
-                      FooterLinkItem('Careers', onTap: () => _navigateTo('careers')),
                       FooterLinkItem('Contact', onTap: () => _sendEmail(_contactEmail)),
-                    ],
-                    theme,
-                  ),
-                ),
-                // Products links
-                Expanded(
-                  child: _footerLinks(
-                    'Products',
-                    [
-                      FooterLinkItem('Predictions', onTap: () => _navigateTo('predictions')),
-                      FooterLinkItem('Analytics', onTap: () => _navigateTo('analytics')),
-                      FooterLinkItem('API', onTap: () => _navigateTo('api')),
-                      FooterLinkItem('Enterprise', onTap: () => _navigateTo('enterprise')),
                     ],
                     theme,
                   ),
@@ -808,10 +900,7 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
                   child: _footerLinks(
                     'Resources',
                     [
-                      FooterLinkItem('Blog', onTap: () => _navigateTo('blog')),
-                      FooterLinkItem('Documentation', onTap: () => _navigateTo('docs')),
-                      FooterLinkItem('Community', onTap: () => _navigateTo('community')),
-                      FooterLinkItem('Help Center', onTap: () => _sendEmail(_contactEmail)),
+                      FooterLinkItem('EigenLayer', onTap: () => WebviewUtility.openUrl('https://www.eigenlayer.xyz/')),
                     ],
                     theme,
                   ),
@@ -826,49 +915,25 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Company links
+                // Demo links
                 _footerLinksCompact(
-                  'Company',
+                  'Demo',
                   [
-                    FooterLinkItem('About Us', onTap: () => _navigateTo('about')),
-                    FooterLinkItem('Team', onTap: () => _navigateTo('team')),
-                    FooterLinkItem('Careers', onTap: () => _navigateTo('careers')),
                     FooterLinkItem('Contact', onTap: () => _sendEmail(_contactEmail)),
                   ],
                   theme,
                 ),
-                // Products links
+                // Resources links
                 _footerLinksCompact(
-                  'Products',
+                  'Resources',
                   [
-                    FooterLinkItem('Predictions', onTap: () => _navigateTo('predictions')),
-                    FooterLinkItem('Analytics', onTap: () => _navigateTo('analytics')),
-                    FooterLinkItem('API', onTap: () => _navigateTo('api')),
-                    FooterLinkItem('Enterprise', onTap: () => _navigateTo('enterprise')),
+                    FooterLinkItem('EigenLayer', onTap: () => WebviewUtility.openUrl('https://www.eigenlayer.xyz/')),
                   ],
                   theme,
                 ),
               ],
             ),
             const SizedBox(height: 30),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Resources links
-                _footerLinksCompact(
-                  'Resources',
-                  [
-                    FooterLinkItem('Blog', onTap: () => _navigateTo('blog')),
-                    FooterLinkItem('Documentation', onTap: () => _navigateTo('docs')),
-                    FooterLinkItem('Community', onTap: () => _navigateTo('community')),
-                    FooterLinkItem('Help Center', onTap: () => _sendEmail(_contactEmail)),
-                  ],
-                  theme,
-                ),
-                const SizedBox(width: 40), // Empty spacer for alignment
-              ],
-            ),
           ],
           const SizedBox(height: 60),
           const Divider(color: Colors.white10),
@@ -877,35 +942,11 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '© 2023 Nexus Predictions. All rights reserved.',
+                '© 2025 EigenBet Demo. Hackathon Project.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: Colors.white.withOpacity(0.5),
                 ),
               ),
-              if (MediaQuery.of(context).size.width > 600)
-                Row(
-                  children: [
-                    InkWell(
-                      onTap: () => _navigateTo('privacy'),
-                      child: Text(
-                        'Privacy Policy',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onBackground.withOpacity(0.7),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 20),
-                    InkWell(
-                      onTap: () => _navigateTo('terms'),
-                      child: Text(
-                        'Terms of Service',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onBackground.withOpacity(0.7),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
             ],
           ),
         ],
@@ -1046,6 +1087,8 @@ class FooterLinkItem {
   FooterLinkItem(this.title, {required this.onTap});
 }
 
+// We've removed this custom painter class as it was causing syntax errors
+
 class ParticlesPainter extends CustomPainter {
   final int particleCount;
   final double animationValue;
@@ -1094,30 +1137,75 @@ class ChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     
-    const pointCount = 20;
+    // Create more complex and realistic chart pattern
+    const pointCount = 40; // More points for smoother curve
     final path = Path();
-    final rand = math.Random(42);
+    final rand = math.Random(DateTime.now().millisecondsSinceEpoch); // Different seed each time
     
+    // Create patterns similar to real market data with trends and volatility
+    List<double> trendsPattern = [0.2, 0.3, 0.4, 0.5, 0.45, 0.52, 0.6, 0.65, 0.58, 0.63,
+                                 0.7, 0.72, 0.68, 0.73, 0.78, 0.75, 0.8, 0.82, 0.79, 0.85,
+                                 0.82, 0.79, 0.81, 0.83, 0.81, 0.85, 0.87, 0.84, 0.88, 0.9,
+                                 0.87, 0.83, 0.85, 0.89, 0.92, 0.9, 0.88, 0.92, 0.95, 0.93];
+    
+    // Add volatility based on index and random variation
     for (var i = 0; i < pointCount; i++) {
+      final baseIndex = i % trendsPattern.length;
       final x = size.width * i / (pointCount - 1);
-      final heightFactor = 0.5 + (math.sin(i / 3) * 0.3) + (rand.nextDouble() * 0.2);
-      final y = size.height * (1 - heightFactor);
       
+      // Combine base pattern with random factor for realistic movement
+      final volatility = 0.05 + (0.02 * math.sin(i * 0.4));
+      final randomFactor = (rand.nextDouble() - 0.5) * volatility;
+      
+      // Combine base pattern, random factor, and some cyclical movement
+      final heightFactor = trendsPattern[baseIndex] + randomFactor + (0.03 * math.sin(i * 0.8));
+      
+      // Ensure value stays in reasonable range
+      final adjustedHeight = math.max(0.1, math.min(0.9, heightFactor));
+      final y = size.height * (1 - adjustedHeight);
+      
+      // Start or continue path
       if (i == 0) {
         path.moveTo(x, y);
       } else {
-        path.lineTo(x, y);
+        // Use cubicTo for smoother curves occasionally
+        if (i % 4 == 0 && i > 0 && i < pointCount - 1) {
+          final prevX = size.width * (i - 1) / (pointCount - 1);
+          final prevY = size.height * (1 - (trendsPattern[(i-1) % trendsPattern.length] + 
+                         (rand.nextDouble() - 0.5) * 0.05));
+          final nextX = size.width * (i + 1) / (pointCount - 1);
+          final nextY = size.height * (1 - (trendsPattern[(i+1) % trendsPattern.length] + 
+                          (rand.nextDouble() - 0.5) * 0.05));
+          
+          final ctrlX1 = prevX + (x - prevX) * 0.5;
+          final ctrlY1 = prevY;
+          final ctrlX2 = x - (nextX - x) * 0.5;
+          final ctrlY2 = y;
+          
+          path.cubicTo(ctrlX1, ctrlY1, ctrlX2, ctrlY2, x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      
+      // Add occasional market "events" - sharp moves
+      if (rand.nextInt(pointCount) == i && i > 5 && i < pointCount - 5) {
+        final eventSize = (rand.nextDouble() - 0.3) * 0.15; // -3% to +10% event
+        final eventY = y - (eventSize * size.height);
+        path.lineTo(x + (size.width / pointCount * 0.5), eventY);
+        path.lineTo(x + (size.width / pointCount), y);
       }
     }
     
     canvas.drawPath(path, paint);
     
-    // Draw area below the line
+    // Draw area below the line with gradient
     final areaPaint = Paint()
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [color.withOpacity(0.3), color.withOpacity(0.0)],
+        colors: [color.withOpacity(0.5), color.withOpacity(0.01)],
+        stops: const [0.2, 0.9],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
     
     final areaPath = Path.from(path)
@@ -1126,8 +1214,69 @@ class ChartPainter extends CustomPainter {
       ..close();
     
     canvas.drawPath(areaPath, areaPaint);
+    
+    // Add indicator dots at key points
+    final dotPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+      
+    // Add dots at key positions: start, end, high, low
+    final startX = 0.0;
+    final startY = size.height * (1 - trendsPattern[0]);
+    final endX = size.width;
+    final endY = size.height * (1 - trendsPattern.last);
+    
+    // Find highest and lowest points
+    double maxY = double.infinity;
+    double minY = -double.infinity;
+    double maxX = 0.0;
+    double minX = 0.0;
+    
+    for (var i = 0; i < pointCount; i++) {
+      final x = size.width * i / (pointCount - 1);
+      final heightFactor = trendsPattern[i % trendsPattern.length];
+      final y = size.height * (1 - heightFactor);
+      
+      if (y < maxY) {
+        maxY = y;
+        maxX = x;
+      }
+      
+      if (y > minY) {
+        minY = y;
+        minX = x;
+      }
+    }
+    
+    // Draw key points - white dots with colored outlines
+    final keyPoints = [
+      Offset(startX, startY),
+      Offset(endX, endY),
+      Offset(maxX, maxY),
+      Offset(minX, minY),
+    ];
+    
+    for (final point in keyPoints) {
+      // Outer circle (colored)
+      canvas.drawCircle(
+        point, 
+        5.0, 
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.fill
+      );
+      
+      // Inner circle (white)
+      canvas.drawCircle(
+        point, 
+        2.5, 
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.fill
+      );
+    }
   }
   
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true; // Allow repainting for animation
 }

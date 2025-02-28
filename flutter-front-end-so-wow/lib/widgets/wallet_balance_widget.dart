@@ -142,6 +142,7 @@ class _WalletBalanceWidgetState extends State<WalletBalanceWidget> {
   }
   
   Widget _buildBalances(WalletService walletService, ThemeData theme) {
+    // Use wallet service to get balances directly from the connected wallet
     final tokens = [
       TokenBalance(
         symbol: 'USDC', 

@@ -90,8 +90,8 @@ class AvsService {
     // Simulate network delay
     await Future.delayed(const Duration(seconds: 2));
     
-    // For demonstration, we'll determine outcome based on market title
-    final outcomeResult = market.title.toLowerCase().contains('eth') ? 'Yes' : 'No';
+    // ALWAYS return Yes for demo
+    const outcomeResult = 'Yes';
     
     return {
       'verificationId': 'avs_${DateTime.now().millisecondsSinceEpoch}',
