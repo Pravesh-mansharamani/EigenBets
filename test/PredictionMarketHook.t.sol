@@ -16,6 +16,7 @@ import {MockHooks} from "@v4-core/test/MockHooks.sol";
 import {HookMiner} from "@v4-periphery/utils/HookMiner.sol";
 import {Pool} from "@v4-core/libraries/Pool.sol";
 import {SwapMath} from "@v4-core/libraries/SwapMath.sol";
+import {IUnlockCallback} from "@v4-core/interfaces/callback/IUnlockCallback.sol";
 
 contract PredictionMarketHookTest is Test {
     PredictionMarketHook public hook;
@@ -337,6 +338,12 @@ contract PoolManagerHandler {
         }
         
         return (delta, BalanceDelta.wrap(0));
+    }
+
+    function unlock(bytes calldata data) external returns (bytes memory) {
+        // Call the unlockCallback on the caller, which should be the hook contract
+        bytes memory result = IUnlockCallback(msg.sender).unlockCallback(data);
+        return result;
     }
 
     function swap(PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)

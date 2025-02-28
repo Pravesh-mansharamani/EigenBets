@@ -15,13 +15,33 @@ import {BalanceDelta, toBalanceDelta, BalanceDeltaLibrary} from "@v4-core/types/
 import {IHooks} from "@v4-core/interfaces/IHooks.sol";
 import {BeforeSwapDelta} from "@v4-core/types/BeforeSwapDelta.sol";
 import {LiquidityAmounts} from "@v4-periphery/libraries/LiquidityAmounts.sol";
+import {IUnlockCallback} from "@v4-core/interfaces/callback/IUnlockCallback.sol";
 import {console2} from "forge-std/console2.sol";
 import {PoolIdLibrary} from "@v4-core/types/PoolId.sol";
 
-contract PredictionMarketHook is BaseHook, Ownable {
+contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     using CurrencyLibrary for Currency;
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
+
+    // Operation types for unlock callback handling
+    enum OperationType {
+        None,
+        AddLiquidityYes,
+        AddLiquidityNo,
+        RemoveLiquidityYes,
+        RemoveLiquidityNo
+    }
+
+    // Operation context for unlock callback
+    struct OperationContext {
+        OperationType operationType;
+        PoolKey poolKey;
+        IPoolManager.ModifyLiquidityParams params;
+    }
+
+    // Current operation context
+    OperationContext public currentOperation;
 
     address public immutable usdc;
     address public immutable yesToken;
@@ -59,7 +79,7 @@ contract PredictionMarketHook is BaseHook, Ownable {
         address _noToken,
         uint256 _startTime,
         uint256 _endTime
-    ) BaseHook(IPoolManager(_poolManager)) Ownable(msg.sender) {
+    ) BaseHook(IPoolManager(_poolManager)) Ownable(tx.origin) {
         console2.log("Initializing PredictionMarketHook");
         console2.log("USDC:", _usdc);
         console2.log("YES token:", _yesToken);
@@ -185,6 +205,10 @@ contract PredictionMarketHook is BaseHook, Ownable {
         
         return (IHooks.afterSwap.selector, 0);
     }
+
+    function checkOwner() public view returns (address) {
+        return owner();
+    }
     
     function initializePools() external onlyOwner {
         console2.log("Initializing YES pool");
@@ -204,7 +228,7 @@ contract PredictionMarketHook is BaseHook, Ownable {
         }
         
         console2.log("Adding liquidity to YES pool");
-        _mintLiquidity(yesPoolKey, 50_000e6, 50_000e18);
+        _addLiquidity(yesPoolKey, 50_000e6, 50_000e18);
         console2.log("Added liquidity to YES pool");
         
         // Initialize the state tracking variables
@@ -228,7 +252,7 @@ contract PredictionMarketHook is BaseHook, Ownable {
         }
         
         console2.log("Adding liquidity to NO pool");
-        _mintLiquidity(noPoolKey, 50_000e6, 50_000e18);
+        _addLiquidity(noPoolKey, 50_000e6, 50_000e18);
         console2.log("Added liquidity to NO pool");
         
         // Initialize the state tracking variables
@@ -238,7 +262,7 @@ contract PredictionMarketHook is BaseHook, Ownable {
         emit PoolsInitialized(Currency.unwrap(yesPoolKey.currency1), Currency.unwrap(noPoolKey.currency1));
     }
 
-    function _mintLiquidity(PoolKey memory key, uint256 amount0, uint256 amount1) internal {
+    function _addLiquidity(PoolKey memory key, uint256 amount0, uint256 amount1) internal {
         Currency currency0 = key.currency0;
         Currency currency1 = key.currency1;
         
@@ -269,23 +293,43 @@ contract PredictionMarketHook is BaseHook, Ownable {
             liquidityDelta: int128(liquidity),
             salt: keccak256("prediction_market")
         });
-        
-        console2.log("Calling modifyLiquidity");
-        try IPoolManager(address(poolManager)).modifyLiquidity(key, params, "") returns (BalanceDelta callerDelta, BalanceDelta) {
-            console2.log("Added liquidity successfully");
-            // Log deltas for debugging
-            console2.log("Delta amount0:", int256(callerDelta.amount0()));
-            console2.log("Delta amount1:", int256(callerDelta.amount1()));
-            
-            emit LiquidityAdded(
-                Currency.unwrap(key.currency1), 
-                uint256(int256(-callerDelta.amount0())), // Negate because negative delta means tokens going to pool
-                uint256(int256(-callerDelta.amount1()))  // Negate because negative delta means tokens going to pool
-            );
-        } catch Error(string memory reason) {
-            console2.log("Failed to add liquidity:", reason);
-            revert(reason);
+
+        // Set operation context for the callback
+        if (Currency.unwrap(key.currency1) == yesToken) {
+            currentOperation = OperationContext({
+                operationType: OperationType.AddLiquidityYes,
+                poolKey: key,
+                params: params
+            });
+        } else {
+            currentOperation = OperationContext({
+                operationType: OperationType.AddLiquidityNo,
+                poolKey: key,
+                params: params
+            });
         }
+
+        // The actual operation will be performed in the unlockCallback
+        console2.log("Unlocking pool manager to execute liquidity operation");
+        bytes memory result = poolManager.unlock(new bytes(0));
+        
+        // Reset operation context
+        currentOperation = OperationContext({
+            operationType: OperationType.None,
+            poolKey: PoolKey({
+                currency0: Currency.wrap(address(0)),
+                currency1: Currency.wrap(address(0)),
+                fee: 0,
+                tickSpacing: 0,
+                hooks: IHooks(address(0))
+            }),
+            params: IPoolManager.ModifyLiquidityParams({
+                tickLower: 0,
+                tickUpper: 0,
+                liquidityDelta: 0,
+                salt: bytes32(0)
+            })
+        });
     }
 
     function _isValidPool(PoolKey calldata key) internal view returns (bool) {
@@ -298,12 +342,61 @@ contract PredictionMarketHook is BaseHook, Ownable {
         require(!resolved, "Already resolved");
         console2.log("Resolving outcome as:", _outcomeIsYes ? "YES" : "NO");
 
-        // Get current token balances from the pools
-        (uint256 usdcYes, uint256 yesTokens) = _withdrawLiquidity(yesPoolKey);
+        // Set operation context for yes pool withdrawal
+        currentOperation = OperationContext({
+            operationType: OperationType.RemoveLiquidityYes,
+            poolKey: yesPoolKey,
+            params: IPoolManager.ModifyLiquidityParams({
+                tickLower: -887272,
+                tickUpper: 887272,
+                liquidityDelta: type(int128).min,
+                salt: keccak256("prediction_market")
+            })
+        });
+        
+        // Withdraw from YES pool
+        console2.log("Withdrawing from YES pool");
+        bytes memory resultYes = poolManager.unlock(new bytes(0));
+        uint256 usdcYes = usdcInYesPool;
+        uint256 yesTokens = yesTokensInPool;
         console2.log("Withdrawn from YES pool - USDC:", usdcYes, "YES tokens:", yesTokens);
         
-        (uint256 usdcNo, uint256 noTokens) = _withdrawLiquidity(noPoolKey);
+        // Set operation context for no pool withdrawal
+        currentOperation = OperationContext({
+            operationType: OperationType.RemoveLiquidityNo,
+            poolKey: noPoolKey,
+            params: IPoolManager.ModifyLiquidityParams({
+                tickLower: -887272,
+                tickUpper: 887272,
+                liquidityDelta: type(int128).min,
+                salt: keccak256("prediction_market")
+            })
+        });
+        
+        // Withdraw from NO pool
+        console2.log("Withdrawing from NO pool");
+        bytes memory resultNo = poolManager.unlock(new bytes(0));
+        uint256 usdcNo = usdcInNoPool;
+        uint256 noTokens = noTokensInPool;
         console2.log("Withdrawn from NO pool - USDC:", usdcNo, "NO tokens:", noTokens);
+        
+        // Reset operation context
+        currentOperation = OperationContext({
+            operationType: OperationType.None,
+            poolKey: PoolKey({
+                currency0: Currency.wrap(address(0)),
+                currency1: Currency.wrap(address(0)),
+                fee: 0,
+                tickSpacing: 0,
+                hooks: IHooks(address(0))
+            }),
+            params: IPoolManager.ModifyLiquidityParams({
+                tickLower: 0,
+                tickUpper: 0,
+                liquidityDelta: 0,
+                salt: bytes32(0)
+            })
+        });
 
         // Update state variables - use actual USDC balance instead of reported values
         // This ensures we only distribute what the contract actually has
@@ -322,24 +415,69 @@ contract PredictionMarketHook is BaseHook, Ownable {
         
         emit OutcomeResolved(_outcomeIsYes);
     }
-
-    function _withdrawLiquidity(PoolKey memory key) internal returns (uint256 usdcAmount, uint256 tokenAmount) {
-        console2.log("Withdrawing liquidity from pool");
-        IPoolManager.ModifyLiquidityParams memory params = IPoolManager.ModifyLiquidityParams({
-            tickLower: -887272,
-            tickUpper: 887272,
-            liquidityDelta: type(int128).min,
-            salt: keccak256("prediction_market")
-        });
+    
+    // Implement the unlockCallback function required by IUnlockCallback
+    function unlockCallback(bytes calldata) external override returns (bytes memory) {
+        // Check that the caller is the PoolManager
+        require(msg.sender == address(poolManager), "Unauthorized callback");
         
-        (BalanceDelta delta, ) = poolManager.modifyLiquidity(key, params, "");
-
-        (usdcAmount, tokenAmount) = Currency.unwrap(key.currency0) == usdc
-            ? (uint256(int256(delta.amount0())), uint256(int256(delta.amount1())))
-            : (uint256(int256(delta.amount1())), uint256(int256(delta.amount0())));
+        // No operation to perform
+        if (currentOperation.operationType == OperationType.None) {
+            return "";
+        }
+        
+        // Execute operation based on the current context
+        if (currentOperation.operationType == OperationType.AddLiquidityYes || 
+            currentOperation.operationType == OperationType.AddLiquidityNo) {
+            // Add liquidity
+            console2.log("Executing add liquidity operation in callback");
             
-        console2.log("Withdrawn amounts - USDC:", usdcAmount, "Token:", tokenAmount);
-        return (usdcAmount, tokenAmount);
+            (BalanceDelta delta, ) = IPoolManager(address(poolManager)).modifyLiquidity(
+                currentOperation.poolKey,
+                currentOperation.params,
+                ""
+            );
+            
+            console2.log("Added liquidity successfully");
+            console2.log("Delta amount0:", int256(delta.amount0()));
+            console2.log("Delta amount1:", int256(delta.amount1()));
+            
+            emit LiquidityAdded(
+                Currency.unwrap(currentOperation.poolKey.currency1),
+                uint256(int256(-delta.amount0())), // Negate because negative delta means tokens going to pool
+                uint256(int256(-delta.amount1()))  // Negate because negative delta means tokens going to pool
+            );
+            
+            return "";
+        } 
+        else if (currentOperation.operationType == OperationType.RemoveLiquidityYes || 
+                 currentOperation.operationType == OperationType.RemoveLiquidityNo) {
+            // Remove liquidity
+            console2.log("Executing remove liquidity operation in callback");
+            
+            (BalanceDelta delta, ) = IPoolManager(address(poolManager)).modifyLiquidity(
+                currentOperation.poolKey,
+                currentOperation.params,
+                ""
+            );
+            
+            console2.log("Removed liquidity successfully");
+            console2.log("Delta amount0:", int256(delta.amount0()));
+            console2.log("Delta amount1:", int256(delta.amount1()));
+            
+            // Zero out pool balance for the relevant pool
+            if (currentOperation.operationType == OperationType.RemoveLiquidityYes) {
+                usdcInYesPool = 0;
+                yesTokensInPool = 0;
+            } else {
+                usdcInNoPool = 0;
+                noTokensInPool = 0;
+            }
+            
+            return "";
+        }
+        
+        return "";
     }
 
     function claim() external {
