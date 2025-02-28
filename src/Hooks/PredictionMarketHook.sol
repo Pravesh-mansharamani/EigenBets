@@ -99,8 +99,8 @@ contract PredictionMarketHook is BaseHook, Ownable {
         IPoolManager.ModifyLiquidityParams calldata /* params */,
         bytes calldata
     ) internal view override returns (bytes4) {
+        require(block.timestamp <= endTime, "Betting closed");
         require(_isValidPool(key), "Invalid pool");
-        require(block.timestamp >= startTime && block.timestamp <= endTime, "Betting closed");
         return IHooks.beforeAddLiquidity.selector;
     }
 
@@ -122,51 +122,64 @@ contract PredictionMarketHook is BaseHook, Ownable {
         bytes calldata
     ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
         require(_isValidPool(key), "Invalid pool");
-        require(block.timestamp >= startTime && block.timestamp <= endTime, "Betting closed");
+        require(
+            block.timestamp >= startTime && 
+            block.timestamp <= endTime, 
+            "Betting closed"
+        );
         return (IHooks.beforeSwap.selector, BeforeSwapDelta.wrap(0), 0);
     }
     
-    // Implementation of afterSwap to track pool balances
     function _afterSwap(
         address /* sender */,
         PoolKey calldata key,
-        IPoolManager.SwapParams calldata /* params */,
+        IPoolManager.SwapParams calldata,
         BalanceDelta delta,
         bytes calldata
     ) internal override returns (bytes4, int128) {
-        // Determine which pool was affected
         bool isYesPool = Currency.unwrap(key.currency1) == yesToken;
         
-        // Calculate USDC change (delta.amount0 if USDC is token0, delta.amount1 otherwise)
         int256 usdcDelta = Currency.unwrap(key.currency0) == usdc ? delta.amount0() : delta.amount1();
         int256 tokenDelta = Currency.unwrap(key.currency0) == usdc ? delta.amount1() : delta.amount0();
         
-        // Update state variables
+        uint256 usdcAdded = usdcDelta < 0 ? uint256(-usdcDelta) : 0;
+        uint256 tokenAdded = tokenDelta < 0 ? uint256(-tokenDelta) : 0;
+        
         if (isYesPool) {
-            // negating because of how deltas work (negative means tokens came into the pool)
             if (usdcDelta < 0) {
                 usdcInYesPool += uint256(-usdcDelta);
             } else {
-                usdcInYesPool = usdcInYesPool > uint256(usdcDelta) ? usdcInYesPool - uint256(usdcDelta) : 0;
+                require(usdcInYesPool >= uint256(usdcDelta), "Insufficient USDC in YES pool");
+                usdcInYesPool -= uint256(usdcDelta);
             }
             
             if (tokenDelta < 0) {
                 yesTokensInPool += uint256(-tokenDelta);
             } else {
-                yesTokensInPool = yesTokensInPool > uint256(tokenDelta) ? yesTokensInPool - uint256(tokenDelta) : 0;
+                require(yesTokensInPool >= uint256(tokenDelta), "Insufficient YES tokens in pool");
+                yesTokensInPool -= uint256(tokenDelta);
+            }
+            
+            if (usdcAdded > 0 || tokenAdded > 0) {
+                emit LiquidityAdded(yesToken, usdcAdded, tokenAdded);
             }
         } else {
-            // negating because of how deltas work (negative means tokens came into the pool)
             if (usdcDelta < 0) {
                 usdcInNoPool += uint256(-usdcDelta);
             } else {
-                usdcInNoPool = usdcInNoPool > uint256(usdcDelta) ? usdcInNoPool - uint256(usdcDelta) : 0;
+                require(usdcInNoPool >= uint256(usdcDelta), "Insufficient USDC in NO pool");
+                usdcInNoPool -= uint256(usdcDelta);
             }
             
             if (tokenDelta < 0) {
                 noTokensInPool += uint256(-tokenDelta);
             } else {
-                noTokensInPool = noTokensInPool > uint256(tokenDelta) ? noTokensInPool - uint256(tokenDelta) : 0;
+                require(noTokensInPool >= uint256(tokenDelta), "Insufficient NO tokens in pool");
+                noTokensInPool -= uint256(tokenDelta);
+            }
+            
+            if (usdcAdded > 0 || tokenAdded > 0) {
+                emit LiquidityAdded(noToken, usdcAdded, tokenAdded);
             }
         }
         
@@ -285,19 +298,28 @@ contract PredictionMarketHook is BaseHook, Ownable {
         require(!resolved, "Already resolved");
         console2.log("Resolving outcome as:", _outcomeIsYes ? "YES" : "NO");
 
+        // Get current token balances from the pools
         (uint256 usdcYes, uint256 yesTokens) = _withdrawLiquidity(yesPoolKey);
         console2.log("Withdrawn from YES pool - USDC:", usdcYes, "YES tokens:", yesTokens);
         
         (uint256 usdcNo, uint256 noTokens) = _withdrawLiquidity(noPoolKey);
         console2.log("Withdrawn from NO pool - USDC:", usdcNo, "NO tokens:", noTokens);
 
-        totalUSDCCollected = usdcYes + usdcNo;
-        hookYesBalance = yesTokens;
-        hookNoBalance = noTokens;
+        // Update state variables - use actual USDC balance instead of reported values
+        // This ensures we only distribute what the contract actually has
+        totalUSDCCollected = IERC20(usdc).balanceOf(address(this));
+        console2.log("Total USDC collected:", totalUSDCCollected);
+        
+        // Save token balances to use in claim calculation
+        hookYesBalance = IERC20(yesToken).balanceOf(address(this));
+        hookNoBalance = IERC20(noToken).balanceOf(address(this));
+        console2.log("Hook YES token balance:", hookYesBalance);
+        console2.log("Hook NO token balance:", hookNoBalance);
+        
+        // Mark as resolved
         outcomeIsYes = _outcomeIsYes;
         resolved = true;
         
-        console2.log("Total USDC:", totalUSDCCollected);
         emit OutcomeResolved(_outcomeIsYes);
     }
 
@@ -331,14 +353,19 @@ contract PredictionMarketHook is BaseHook, Ownable {
         
         require(userBalance > 0, "No winning tokens");
         
-        uint256 totalWinningSupply = IERC20(token).totalSupply() - (outcomeIsYes ? hookYesBalance : hookNoBalance);
-        console2.log("Total winning supply:", totalWinningSupply);
-
-        require(totalWinningSupply > 0, "No winners");
-        uint256 usdcShare = (userBalance * totalUSDCCollected) / totalWinningSupply;
+        // Calculate total supply of winning tokens held by users (excluding hook balance)
+        // For the winning token, the hook keeps track of how many tokens it had before resolution
+        uint256 totalWinningTokens = IERC20(token).totalSupply() - (outcomeIsYes ? hookYesBalance : hookNoBalance);
+        console2.log("Total winning tokens in circulation:", totalWinningTokens);
+        
+        // Sanity check
+        require(totalWinningTokens > 0, "No winners");
+        
+        // Calculate user's share of the USDC proportional to their token holdings
+        uint256 usdcShare = (userBalance * totalUSDCCollected) / totalWinningTokens;
         console2.log("User's USDC share:", usdcShare);
 
-        // Mark as claimed
+        // Mark as claimed before external calls to prevent reentrancy
         hasClaimed[msg.sender] = true;
         
         // Transfer USDC to the user
@@ -392,5 +419,27 @@ contract PredictionMarketHook is BaseHook, Ownable {
         }
         
         return (yesPrice, noPrice);
+    }
+    
+    // helper function to properly expose pool key components
+    function getYesPoolKeyComponents() public view returns (Currency, Currency, uint24, int24, IHooks) {
+        return (
+            yesPoolKey.currency0,
+            yesPoolKey.currency1,
+            yesPoolKey.fee,
+            yesPoolKey.tickSpacing,
+            yesPoolKey.hooks
+        );
+    }
+    
+    // helper function to properly expose pool key components
+    function getNoPoolKeyComponents() public view returns (Currency, Currency, uint24, int24, IHooks) {
+        return (
+            noPoolKey.currency0,
+            noPoolKey.currency1,
+            noPoolKey.fee,
+            noPoolKey.tickSpacing,
+            noPoolKey.hooks
+        );
     }
 }
