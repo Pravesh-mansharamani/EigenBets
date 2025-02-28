@@ -11,6 +11,7 @@ import '../main.dart'; // Import the main.dart file for navigatorKey
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../utils/metamask.dart'; // For MetaMask integration
 import 'package:flutter_web3/flutter_web3.dart';
+import '../models/market_data.dart' as market_data; // Import market data for market creation
 
 enum WalletType {
   metamask,
@@ -260,18 +261,32 @@ class WalletService extends ChangeNotifier {
     }
   }
   
-  // Generate realistic balances for demo purposes
+  // Generate realistic balances for demo purposes based on wallet address
   void _generateSimulatedBalances() {
-    // More realistic and consistent balances
-    final rnd = Random();
+    if (!_isConnected || _walletAddress == null) {
+      _ethBalance = 0;
+      _usdcBalance = 0;
+      _predBalance = 0;
+      return;
+    }
     
-    // Address-based randomness for consistent values
-    final seed = _walletAddress?.codeUnits.fold<int>(0, (a, b) => a + b) ?? 42;
+    // Create deterministic balances based on wallet address
+    // This ensures same wallet always shows same balances
+    final seed = _walletAddress!.codeUnits.fold<int>(0, (a, b) => a + b);
     final r = Random(seed);
     
+    // Generate balances with some variance but tied to the wallet address
     _ethBalance = 0.5 + (r.nextDouble() * 2.5);
     _usdcBalance = 1000.0 + (r.nextDouble() * 5000.0);
     _predBalance = 100.0 + (r.nextDouble() * 1000.0);
+    
+    // Special case for our team's wallets to show higher balances
+    if (_walletAddress!.toLowerCase().contains('71c7656e') || 
+        _walletAddress!.toLowerCase().contains('8626f694')) {
+      _ethBalance *= 1.5;
+      _usdcBalance *= 2.0;
+      _predBalance *= 3.0;
+    }
   }
   
   // Get transaction history - simplified implementation
@@ -596,10 +611,12 @@ class WalletService extends ChangeNotifier {
     if (!_isConnected) return null;
     
     try {
-      // This would use CDP SDK to execute actions in a real implementation
-      await Future.delayed(const Duration(seconds: 2));
+      // Simulate on-chain interaction loading time
+      // Between 2-4 seconds to make it feel realistic
+      final loadingDuration = 2000 + (DateTime.now().millisecond % 2000);
+      await Future.delayed(Duration(milliseconds: loadingDuration));
       
-      // Mock response
+      // Mock successful response
       return {
         'success': true,
         'txHash': '0x${List.generate(64, (_) => '0123456789ABCDEF'[DateTime.now().microsecond % 16]).join()}',
@@ -620,8 +637,10 @@ class WalletService extends ChangeNotifier {
       // - MetaMask: window.ethereum.request({method: 'personal_sign', params: [message, address]})
       // - WalletConnect: connector.signPersonalMessage([message, address])
       
-      // Simulate signing for demo
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Simulate signing with 2-3 second delay for realistic wallet popup experience
+      final loadingDuration = 2000 + (DateTime.now().millisecond % 1000);
+      await Future.delayed(Duration(milliseconds: loadingDuration));
+      
       return '0x${List.generate(130, (_) => '0123456789ABCDEF'[DateTime.now().microsecond % 16]).join()}';
     } catch (e) {
       print('Error signing message: $e');
@@ -683,9 +702,21 @@ class WalletService extends ChangeNotifier {
         usdcBalance -= initialFunding;
         predBalance -= 10; // Market creation fee
         
+        // Create a new market entry in our market data
+        // This allows the new market to appear in the UI immediately
+        final marketId = result['txHash'] ?? 'market-${DateTime.now().millisecondsSinceEpoch}';
+        _createDemoMarket(
+          marketId: marketId,
+          title: question,
+          description: resolutionCriteria,
+          category: category,
+          endDate: endDate,
+          initialFunding: initialFunding,
+        );
+        
         return {
           'success': true,
-          'marketId': result['txHash'],
+          'marketId': marketId,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
         };
       }
@@ -700,6 +731,47 @@ class WalletService extends ChangeNotifier {
         'success': false,
         'error': e.toString(),
       };
+    }
+  }
+  
+  // Creates a new demo market and adds it to the global markets list
+  // This allows newly created markets to show up in the UI
+  void _createDemoMarket({
+    required String marketId,
+    required String title,
+    required String description,
+    required String category,
+    required DateTime endDate,
+    required double initialFunding,
+  }) {
+    try {
+      // Generate a default yes/no price based on a deterministic value from the title
+      final titleHash = title.hashCode.abs() % 100;
+      final yesPrice = (40 + (titleHash % 50)) / 100; // Between 0.4 and 0.9
+      final noPrice = 1.0 - yesPrice;
+      
+      // Create a new market with provided details
+      final newMarket = market_data.MarketData(
+        id: marketId,
+        title: title,
+        description: description,
+        category: category,
+        yesPrice: yesPrice,
+        noPrice: noPrice,
+        volume: initialFunding * 2.5, // Estimate some trading happened already
+        expiryDate: endDate,
+        imageUrl: 'assets/images/placeholder.txt', // Use placeholder as fallback
+        priceHistory: [], // We'll generate the price history outside the constructor
+        status: market_data.MarketStatus.open, // Start as open
+      );
+      
+      // Add to global market list
+      market_data.addMarketToGlobalList(newMarket);
+      
+      // Let the UI know a new market was created
+      notifyListeners();
+    } catch (e) {
+      print('Error creating demo market: $e');
     }
   }
   

@@ -85,16 +85,36 @@ class _BetPlacementFormState extends State<BetPlacementForm> {
         const SizedBox(height: 24),
         _buildBetSummary(context),
         const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          child: _isVerificationInProgress 
-          ? const Center(child: CircularProgressIndicator())
-          : ElevatedButton(
-              onPressed: _betAmount > 0 ? _placeBet : null,
-              child: widget.market.expiryDate.isBefore(DateTime.now()) && !widget.market.isAvsVerified
-                ? const Text('Request AVS Verification')
-                : const Text('Place Bet'),
-            ),
+        Column(
+          children: [
+            if (widget.market.expiryDate.isBefore(DateTime.now()) && !widget.market.isAvsVerified)
+              // Show dedicated AVS verification button if market is expired but not verified
+              SizedBox(
+                width: double.infinity,
+                child: _isVerificationInProgress 
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton.icon(
+                    onPressed: _requestAvsVerification,
+                    icon: const Icon(Icons.verified_user),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.secondary,
+                      foregroundColor: Colors.white,
+                    ),
+                    label: const Text('Send to AVS for Verification'),
+                  ),
+              )
+            else
+              // Regular bet placement button for active markets
+              SizedBox(
+                width: double.infinity,
+                child: _isVerificationInProgress 
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                    onPressed: _betAmount > 0 ? _placeBet : null,
+                    child: const Text('Place Bet'),
+                  ),
+              ),
+          ],
         ),
       ],
     );
@@ -360,19 +380,31 @@ class _BetPlacementFormState extends State<BetPlacementForm> {
       return;
     }
     
-    // Regular bet placement logic for open markets
+    // Show loading state for blockchain interaction
     setState(() {
-      _isVerificationInProgress = false;
+      _isVerificationInProgress = true;
     });
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Bet placed successfully: $_betAmount USDC on $_selectedOutcome',
+    // Simulate blockchain transaction time (2-4 seconds)
+    final loadingDuration = 2000 + (DateTime.now().millisecond % 2000);
+    await Future.delayed(Duration(milliseconds: loadingDuration));
+    
+    // Reset loading state
+    if (mounted) {
+      setState(() {
+        _isVerificationInProgress = false;
+      });
+      
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Bet placed successfully: $_betAmount USDC on $_selectedOutcome',
+          ),
+          behavior: SnackBarBehavior.floating,
         ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+      );
+    }
   }
   
   Future<void> _requestAvsVerification() async {
@@ -384,6 +416,9 @@ class _BetPlacementFormState extends State<BetPlacementForm> {
     try {
       final result = await _avsService.simulateAvsVerification(widget.market);
       
+      // FORCE outcome to be Yes for demo
+      result['outcome'] = 'Yes';
+      
       setState(() {
         _isVerificationInProgress = false;
       });
@@ -392,7 +427,7 @@ class _BetPlacementFormState extends State<BetPlacementForm> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Market verified by AVS. Outcome: ${result['outcome']}',
+            'Market verified by AVS. Outcome: Yes',
           ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.green[700],
