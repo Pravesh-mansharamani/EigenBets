@@ -1,0 +1,13 @@
+android {
+    ...
+    defaultConfig {
+        ...
+        manifestPlaceholders = [
+            'appAuthRedirectScheme': 'com.nexuspredictions.app'
+        ]
+        buildConfigField "String", "COINBASE_API_KEY", "\"${System.getenv('COINBASE_API_KEY') ?: ''}\""
+        buildConfigField "String", "COINBASE_CLIENT_ID", "\"${System.getenv('COINBASE_CLIENT_ID') ?: ''}\""
+        buildConfigField "String", "COINBASE_CLIENT_SECRET", "\"${System.getenv('COINBASE_CLIENT_SECRET') ?: ''}\""
+        buildConfigField "String", "COINBASE_ONRAMP_CLIENT_ID", "\"${System.getenv('COINBASE_ONRAMP_CLIENT_ID') ?: ''}\""
+    }
+} 

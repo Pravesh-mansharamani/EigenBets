@@ -1,0 +1,57 @@
+name: nexus_predictions
+description: A decentralized prediction market platform with enterprise-grade UI.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=2.19.0 <3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.5
+  google_fonts: ^4.0.4
+  fl_chart: ^0.70.2  # Using an older stable version that doesn't use boldTextOverride
+  intl: ^0.18.1
+  provider: ^6.0.5
+  shared_preferences: ^2.1.1
+  http: ^0.13.6
+  url_launcher: ^6.1.11
+  lottie: ^2.3.2
+  flutter_svg: ^2.0.5
+  cached_network_image: ^3.2.3
+  webview_flutter: ^4.2.0  # Required for Coinbase CDK integration
+  webview_flutter_android: ^3.7.0
+  webview_flutter_wkwebview: ^3.4.0
+  uni_links: ^0.5.1
+  
+  # Web3 packages
+  web3dart: ^2.6.1
+  js: ^0.6.7
+  walletconnect_qrcode_modal_dart: ^0.4.3
+  qr_flutter: ^4.1.0
+  walletconnect_dart: ^0.0.11
+  rive: ^0.13.20
+  flutter_animate: ^4.5.2
+  glassmorphism_ui: ^0.3.0
+  flutter_staggered_animations: ^1.1.1
+  simple_animations: ^5.1.0
+  flutter_bloc: ^9.0.0
+  get: ^4.7.2
+  shimmer: ^3.0.0
+  flutter_web3: ^2.1.9
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/avatars/
+    - assets/animations/
+
