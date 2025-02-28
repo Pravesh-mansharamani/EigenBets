@@ -54,28 +54,18 @@ contract DeployPredictionMarketScript is Script {
         console.log("YES token address:", address(yesToken));
         console.log("NO token address:", address(noToken));
 
-        uint256 startTime = block.timestamp + 30 minutes;
-        uint256 endTime = startTime + 7 days;
-        console.log("Start time:", startTime);
-        console.log("End time:", endTime);
-
-        // Prepare constructor arguments for PredictionMarketHook
-        bytes memory constructorArgs = abi.encode(
-            IPoolManager(poolManagerAddress),
-            address(usdc),
-            address(yesToken),
-            address(noToken),
-            startTime,
-            endTime
-        );
-
         console.log("Mining for valid hook address...");
         // Mine a salt that produces a hook address with the required flags.
         (address predictedHook, bytes32 salt) = HookMiner.find(
             create2Deployer,
             flags,
             type(PredictionMarketHook).creationCode,
-            constructorArgs
+            abi.encode(
+                IPoolManager(poolManagerAddress),
+                address(usdc),
+                address(yesToken),
+                address(noToken)
+            )
         );
         console.log("Predicted hook address:", predictedHook);
         console.log("Salt used:", vm.toString(salt));
@@ -85,9 +75,7 @@ contract DeployPredictionMarketScript is Script {
             IPoolManager(poolManagerAddress),
             address(usdc),
             address(yesToken),
-            address(noToken),
-            startTime,
-            endTime
+            address(noToken)
         );
         console.log("Deployed hook at:", address(hook));
         require(address(hook) == predictedHook, "Deployed address mismatch");

@@ -16,13 +16,18 @@ import {IHooks} from "@v4-core/interfaces/IHooks.sol";
 import {BeforeSwapDelta} from "@v4-core/types/BeforeSwapDelta.sol";
 import {LiquidityAmounts} from "@v4-periphery/libraries/LiquidityAmounts.sol";
 import {IUnlockCallback} from "@v4-core/interfaces/callback/IUnlockCallback.sol";
-import {console2} from "forge-std/console2.sol";
 import {PoolIdLibrary} from "@v4-core/types/PoolId.sol";
 
 contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     using CurrencyLibrary for Currency;
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
+
+    // Market states
+    bool public marketOpen;
+    bool public marketClosed;
+    bool public resolved;
+    bool public outcomeIsYes;
 
     // Operation types for unlock callback handling
     enum OperationType {
@@ -49,8 +54,6 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     address public immutable usdc;
     address public immutable yesToken;
     address public immutable noToken;
-    uint256 public immutable startTime;
-    uint256 public immutable endTime;
 
     // State variables to track pool balances
     uint256 public usdcInYesPool = 0;
@@ -61,8 +64,6 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     PoolKey public yesPoolKey;
     PoolKey public noPoolKey;
 
-    bool public resolved;
-    bool public outcomeIsYes;
     uint256 public totalUSDCCollected;
     uint256 public hookYesBalance;
     uint256 public hookNoBalance;
@@ -70,32 +71,100 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     // Track users who have already claimed
     mapping(address => bool) public hasClaimed;
 
+    // Store token positions in pools for easier access
+    bool public isUSDCToken0InYesPool;
+    bool public isUSDCToken0InNoPool;
+
+    event MarketOpened();
+    event MarketClosed();
     event OutcomeResolved(bool outcomeIsYes);
     event Claimed(address indexed user, uint256 amount);
     event PoolsInitialized(address yesPool, address noPool);
     event LiquidityAdded(address pool, uint256 amount0, uint256 amount1);
     event SwapExecuted(address user, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut);
+    event MarketReset();
 
     constructor(
         IPoolManager _poolManager,
         address _usdc,
         address _yesToken,
-        address _noToken,
-        uint256 _startTime,
-        uint256 _endTime
+        address _noToken
     ) BaseHook(IPoolManager(_poolManager)) Ownable(tx.origin) {
-        console2.log("Initializing PredictionMarketHook");
-        console2.log("USDC:", _usdc);
-        console2.log("YES token:", _yesToken);
-        console2.log("NO token:", _noToken);
-        console2.log("Start time:", _startTime);
-        console2.log("End time:", _endTime);
-        
         usdc = _usdc;
         yesToken = _yesToken;
         noToken = _noToken;
-        startTime = _startTime;
-        endTime = _endTime;
+        
+        marketOpen = false;
+        marketClosed = false;
+        resolved = false;
+    }
+
+    /**
+     * @notice Opens the market for betting
+     * @dev Only the owner can open the market
+     */
+    function openMarket() external onlyOwner {
+        require(!marketOpen, "Market already open");
+        require(!marketClosed, "Market already closed");
+        require(!resolved, "Market already resolved");
+        
+        marketOpen = true;
+        emit MarketOpened();
+    }
+    
+    /**
+     * @notice Closes the market for betting
+     * @dev Only the owner can close the market
+     */
+    function closeMarket() external onlyOwner {
+        require(marketOpen, "Market not open");
+        require(!marketClosed, "Market already closed");
+        
+        marketClosed = true;
+        emit MarketClosed();
+    }
+    
+    /**
+     * @notice Reset the market to create a new prediction round
+     * @dev Only the owner can reset the market, and only after it's been resolved
+     */
+    function resetMarket() external onlyOwner {
+        require(resolved, "Current market not resolved yet");
+        
+        // Reset market state
+        marketOpen = false;
+        marketClosed = false;
+        resolved = false;
+        outcomeIsYes = false;
+        
+        // Reset pool tracking variables
+        usdcInYesPool = 0;
+        usdcInNoPool = 0;
+        yesTokensInPool = 0;
+        noTokensInPool = 0;
+        
+        totalUSDCCollected = 0;
+        hookYesBalance = 0;
+        hookNoBalance = 0;
+        
+        // Reset pool keys
+        yesPoolKey = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(0)),
+            fee: 0,
+            tickSpacing: 0,
+            hooks: IHooks(address(0))
+        });
+        
+        noPoolKey = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(0)),
+            fee: 0,
+            tickSpacing: 0,
+            hooks: IHooks(address(0))
+        });
+        
+        emit MarketReset();
     }
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
@@ -123,7 +192,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         IPoolManager.ModifyLiquidityParams calldata /* params */,
         bytes calldata
     ) internal view override returns (bytes4) {
-        require(block.timestamp <= endTime, "Betting closed");
+        require(!marketClosed, "Market closed");
         require(_isValidPool(key), "Invalid pool");
         return IHooks.beforeAddLiquidity.selector;
     }
@@ -135,7 +204,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         bytes calldata
     ) internal view override returns (bytes4) {
         require(_isValidPool(key), "Invalid pool");
-        require(block.timestamp >= startTime && block.timestamp <= endTime, "Betting closed");
+        require(marketOpen && !marketClosed, "Market not active");
         return IHooks.beforeRemoveLiquidity.selector;
     }
 
@@ -146,11 +215,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         bytes calldata
     ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
         require(_isValidPool(key), "Invalid pool");
-        require(
-            block.timestamp >= startTime && 
-            block.timestamp <= endTime, 
-            "Betting closed"
-        );
+        require(marketOpen && !marketClosed, "Market not active");
         return (IHooks.beforeSwap.selector, BeforeSwapDelta.wrap(0), 0);
     }
     
@@ -161,15 +226,16 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         BalanceDelta delta,
         bytes calldata
     ) internal override returns (bytes4, int128) {
-        bool isYesPool = Currency.unwrap(key.currency1) == yesToken;
+        bool isYesPool = _isYesPool(key);
         
-        int256 usdcDelta = Currency.unwrap(key.currency0) == usdc ? delta.amount0() : delta.amount1();
-        int256 tokenDelta = Currency.unwrap(key.currency0) == usdc ? delta.amount1() : delta.amount0();
-        
-        uint256 usdcAdded = usdcDelta < 0 ? uint256(-usdcDelta) : 0;
-        uint256 tokenAdded = tokenDelta < 0 ? uint256(-tokenDelta) : 0;
+        int256 usdcDelta;
+        int256 tokenDelta;
         
         if (isYesPool) {
+            // For YES pool
+            usdcDelta = isUSDCToken0InYesPool ? delta.amount0() : delta.amount1();
+            tokenDelta = isUSDCToken0InYesPool ? delta.amount1() : delta.amount0();
+            
             if (usdcDelta < 0) {
                 usdcInYesPool += uint256(-usdcDelta);
             } else {
@@ -184,10 +250,18 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
                 yesTokensInPool -= uint256(tokenDelta);
             }
             
-            if (usdcAdded > 0 || tokenAdded > 0) {
-                emit LiquidityAdded(yesToken, usdcAdded, tokenAdded);
+            if (usdcDelta < 0 || tokenDelta < 0) {
+                emit LiquidityAdded(
+                    yesToken, 
+                    usdcDelta < 0 ? uint256(-usdcDelta) : 0, 
+                    tokenDelta < 0 ? uint256(-tokenDelta) : 0
+                );
             }
         } else {
+            // For NO pool
+            usdcDelta = isUSDCToken0InNoPool ? delta.amount0() : delta.amount1();
+            tokenDelta = isUSDCToken0InNoPool ? delta.amount1() : delta.amount0();
+            
             if (usdcDelta < 0) {
                 usdcInNoPool += uint256(-usdcDelta);
             } else {
@@ -202,8 +276,12 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
                 noTokensInPool -= uint256(tokenDelta);
             }
             
-            if (usdcAdded > 0 || tokenAdded > 0) {
-                emit LiquidityAdded(noToken, usdcAdded, tokenAdded);
+            if (usdcDelta < 0 || tokenDelta < 0) {
+                emit LiquidityAdded(
+                    noToken, 
+                    usdcDelta < 0 ? uint256(-usdcDelta) : 0, 
+                    tokenDelta < 0 ? uint256(-tokenDelta) : 0
+                );
             }
         }
         
@@ -215,72 +293,62 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     }
     
     function initializePools() external onlyOwner {
-        console2.log("Initializing YES pool");
+        require(!marketOpen && !marketClosed && !resolved, "Cannot initialize active market");
+        
+        // Create YES pool with correct token ordering
+        isUSDCToken0InYesPool = uint160(usdc) < uint160(yesToken);
+        
         yesPoolKey = PoolKey({
-            currency0: Currency.wrap(usdc),
-            currency1: Currency.wrap(yesToken),
+            currency0: Currency.wrap(isUSDCToken0InYesPool ? usdc : yesToken),
+            currency1: Currency.wrap(isUSDCToken0InYesPool ? yesToken : usdc),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(this))
         });
         
-        try IPoolManager(address(poolManager)).initialize(yesPoolKey, TickMath.getSqrtPriceAtTick(0)) {
-            console2.log("YES pool initialized successfully");
-        } catch Error(string memory reason) {
-            console2.log("Failed to initialize YES pool:", reason);
-            revert(reason);
-        }
+        IPoolManager(address(poolManager)).initialize(yesPoolKey, TickMath.getSqrtPriceAtTick(0));
         
-        console2.log("Adding liquidity to YES pool");
         _addLiquidity(yesPoolKey, 50_000e6, 50_000e18);
-        console2.log("Added liquidity to YES pool");
         
         // Initialize the state tracking variables
         usdcInYesPool = 50_000e6;
         yesTokensInPool = 50_000e18;
 
-        console2.log("Initializing NO pool");
+        // Determine correct token ordering for NO pool
+        isUSDCToken0InNoPool = uint160(usdc) < uint160(noToken);
+        
         noPoolKey = PoolKey({
-            currency0: Currency.wrap(usdc),
-            currency1: Currency.wrap(noToken),
+            currency0: Currency.wrap(isUSDCToken0InNoPool ? usdc : noToken),
+            currency1: Currency.wrap(isUSDCToken0InNoPool ? noToken : usdc),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(this))
         });
         
-        try IPoolManager(address(poolManager)).initialize(noPoolKey, TickMath.getSqrtPriceAtTick(0)) {
-            console2.log("NO pool initialized successfully");
-        } catch Error(string memory reason) {
-            console2.log("Failed to initialize NO pool:", reason);
-            revert(reason);
-        }
+        IPoolManager(address(poolManager)).initialize(noPoolKey, TickMath.getSqrtPriceAtTick(0));
         
-        console2.log("Adding liquidity to NO pool");
         _addLiquidity(noPoolKey, 50_000e6, 50_000e18);
-        console2.log("Added liquidity to NO pool");
         
         // Initialize the state tracking variables
         usdcInNoPool = 50_000e6;
         noTokensInPool = 50_000e18;
         
-        emit PoolsInitialized(Currency.unwrap(yesPoolKey.currency1), Currency.unwrap(noPoolKey.currency1));
+        emit PoolsInitialized(yesToken, noToken);
     }
 
-    function _addLiquidity(PoolKey memory key, uint256 amount0, uint256 amount1) internal {
-        Currency currency0 = key.currency0;
-        Currency currency1 = key.currency1;
+    function _addLiquidity(PoolKey memory key, uint256 usdcAmount, uint256 tokenAmount) internal {
+        bool isYes = _isYesPool(key);
+        bool isUSDCToken0 = isYes ? isUSDCToken0InYesPool : isUSDCToken0InNoPool;
+        address token = isYes ? yesToken : noToken;
         
-        console2.log("Approving tokens for liquidity provisioning");
-        if (!currency0.isAddressZero()) {
-            // Reset approvals to ensure proper approval amounts
-            IERC20(Currency.unwrap(currency0)).approve(address(poolManager), 0);
-            IERC20(Currency.unwrap(currency0)).approve(address(poolManager), amount0);
-        }
-        if (!currency1.isAddressZero()) {
-            // Reset approvals to ensure proper approval amounts
-            IERC20(Currency.unwrap(currency1)).approve(address(poolManager), 0);
-            IERC20(Currency.unwrap(currency1)).approve(address(poolManager), amount1);
-        }
+        uint256 amount0 = isUSDCToken0 ? usdcAmount : tokenAmount;
+        uint256 amount1 = isUSDCToken0 ? tokenAmount : usdcAmount;
+        
+        IERC20(Currency.unwrap(key.currency0)).approve(address(poolManager), 0);
+        IERC20(Currency.unwrap(key.currency0)).approve(address(poolManager), amount0);
+        
+        IERC20(Currency.unwrap(key.currency1)).approve(address(poolManager), 0);
+        IERC20(Currency.unwrap(key.currency1)).approve(address(poolManager), amount1);
 
         uint160 sqrtPriceAX96 = TickMath.getSqrtPriceAtTick(-887272);
         uint160 sqrtPriceBX96 = TickMath.getSqrtPriceAtTick(887272);
@@ -293,7 +361,6 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
             amount0,
             amount1
         );
-        console2.log("Calculated liquidity amount:", uint256(liquidity));
 
         IPoolManager.ModifyLiquidityParams memory params = IPoolManager.ModifyLiquidityParams({
             tickLower: -887220,
@@ -303,35 +370,20 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         });
 
         // Set operation context for the callback
-        if (Currency.unwrap(key.currency1) == yesToken) {
-            currentOperation = OperationContext({
-                operationType: OperationType.AddLiquidityYes,
-                poolKey: key,
-                modifyParams: params,
-                swapParams: IPoolManager.SwapParams({
-                    zeroForOne: false,
-                    amountSpecified: 0,
-                    sqrtPriceLimitX96: 0
-                }),
-                recipient: address(0)
-            });
-        } else {
-            currentOperation = OperationContext({
-                operationType: OperationType.AddLiquidityNo,
-                poolKey: key,
-                modifyParams: params,
-                swapParams: IPoolManager.SwapParams({
-                    zeroForOne: false,
-                    amountSpecified: 0,
-                    sqrtPriceLimitX96: 0
-                }),
-                recipient: address(0)
-            });
-        }
+        currentOperation = OperationContext({
+            operationType: isYes ? OperationType.AddLiquidityYes : OperationType.AddLiquidityNo,
+            poolKey: key,
+            modifyParams: params,
+            swapParams: IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: 0,
+                sqrtPriceLimitX96: 0
+            }),
+            recipient: address(0)
+        });
 
         // The actual operation will be performed in the unlockCallback
-        console2.log("Unlocking pool manager to execute liquidity operation");
-        bytes memory result = poolManager.unlock(new bytes(0));
+        poolManager.unlock(new bytes(0));
         
         // Reset operation context
         currentOperation = OperationContext({
@@ -438,7 +490,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         uint256 amountIn, 
         uint256 amountOutMinimum
     ) external returns (uint256 amountOut) {
-        require(block.timestamp >= startTime && block.timestamp <= endTime, "Market not active");
+        require(marketOpen && !marketClosed, "Market not active");
         require(!resolved, "Market resolved");
         
         // Verify valid token pairs
@@ -482,25 +534,33 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         uint256 amountIn,
         address recipient
     ) internal returns (uint256 amountOut) {
-        require(block.timestamp >= startTime && block.timestamp <= endTime, "Market not active");
+        require(marketOpen && !marketClosed, "Market not active");
         require(!resolved, "Market resolved");
         
         // Determine which pool to use
         PoolKey memory poolKey;
+        bool zeroForOne;
+        
         if ((tokenIn == usdc && tokenOut == yesToken) || (tokenIn == yesToken && tokenOut == usdc)) {
             poolKey = yesPoolKey;
+            
+            // Determine swap direction based on token positions
+            if (tokenIn == Currency.unwrap(poolKey.currency0)) {
+                zeroForOne = true;
+            } else {
+                zeroForOne = false;
+            }
         } else if ((tokenIn == usdc && tokenOut == noToken) || (tokenIn == noToken && tokenOut == usdc)) {
             poolKey = noPoolKey;
+            
+            // Determine swap direction based on token positions
+            if (tokenIn == Currency.unwrap(poolKey.currency0)) {
+                zeroForOne = true;
+            } else {
+                zeroForOne = false;
+            }
         } else {
             revert("Unsupported token pair");
-        }
-        
-        // Determine swap direction
-        bool zeroForOne;
-        if (tokenIn == Currency.unwrap(poolKey.currency0)) {
-            zeroForOne = true;
-        } else {
-            zeroForOne = false;
         }
         
         // Approve token transfers
@@ -564,16 +624,27 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         return amountOut;
     }
 
+    // Helper function to check if a pool is the YES pool
+    function _isYesPool(PoolKey memory key) internal view returns (bool) {
+        return (
+            (Currency.unwrap(key.currency0) == usdc && Currency.unwrap(key.currency1) == yesToken) ||
+            (Currency.unwrap(key.currency0) == yesToken && Currency.unwrap(key.currency1) == usdc)
+        );
+    }
+
     function _isValidPool(PoolKey calldata key) internal view returns (bool) {
-        return (Currency.unwrap(key.currency0) == usdc && Currency.unwrap(key.currency1) == yesToken) ||
-               (Currency.unwrap(key.currency0) == usdc && Currency.unwrap(key.currency1) == noToken);
+        return (
+            (Currency.unwrap(key.currency0) == usdc && Currency.unwrap(key.currency1) == yesToken) ||
+            (Currency.unwrap(key.currency0) == yesToken && Currency.unwrap(key.currency1) == usdc) ||
+            (Currency.unwrap(key.currency0) == usdc && Currency.unwrap(key.currency1) == noToken) ||
+            (Currency.unwrap(key.currency0) == noToken && Currency.unwrap(key.currency1) == usdc)
+        );
     }
 
     function resolveOutcome(bool _outcomeIsYes) external onlyOwner {
-        require(block.timestamp > endTime, "Betting ongoing");
+        require(marketClosed, "Market not closed");
         require(!resolved, "Already resolved");
-        console2.log("Resolving outcome as:", _outcomeIsYes ? "YES" : "NO");
-
+        
         // Set operation context for yes pool withdrawal
         currentOperation = OperationContext({
             operationType: OperationType.RemoveLiquidityYes,
@@ -593,11 +664,9 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         });
         
         // Withdraw from YES pool
-        console2.log("Withdrawing from YES pool");
         bytes memory resultYes = poolManager.unlock(new bytes(0));
         uint256 usdcYes = usdcInYesPool;
         uint256 yesTokens = yesTokensInPool;
-        console2.log("Withdrawn from YES pool - USDC:", usdcYes, "YES tokens:", yesTokens);
         
         // Set operation context for no pool withdrawal
         currentOperation = OperationContext({
@@ -618,11 +687,9 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         });
         
         // Withdraw from NO pool
-        console2.log("Withdrawing from NO pool");
         bytes memory resultNo = poolManager.unlock(new bytes(0));
         uint256 usdcNo = usdcInNoPool;
         uint256 noTokens = noTokensInPool;
-        console2.log("Withdrawn from NO pool - USDC:", usdcNo, "NO tokens:", noTokens);
         
         // Reset operation context
         currentOperation = OperationContext({
@@ -650,13 +717,10 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
 
         // Update state variables - use actual USDC balance instead of reported values
         totalUSDCCollected = IERC20(usdc).balanceOf(address(this));
-        console2.log("Total USDC collected:", totalUSDCCollected);
         
         // Save token balances to use in claim calculation
         hookYesBalance = IERC20(yesToken).balanceOf(address(this));
         hookNoBalance = IERC20(noToken).balanceOf(address(this));
-        console2.log("Hook YES token balance:", hookYesBalance);
-        console2.log("Hook NO token balance:", hookNoBalance);
         
         // Mark as resolved
         outcomeIsYes = _outcomeIsYes;
@@ -696,17 +760,11 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     
     // Handle adding liquidity in the callback
     function _handleAddLiquidity() internal returns (bytes memory) {
-        console2.log("Executing add liquidity operation in callback");
-        
         (BalanceDelta delta, ) = poolManager.modifyLiquidity(
             currentOperation.poolKey,
             currentOperation.modifyParams,
             ""
         );
-        
-        console2.log("Added liquidity successfully");
-        console2.log("Delta amount0:", int256(delta.amount0()));
-        console2.log("Delta amount1:", int256(delta.amount1()));
         
         // Process token transfers
         _processBalanceDelta(delta, currentOperation.poolKey);
@@ -716,7 +774,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         uint256 safeAmount1 = delta.amount1() < 0 ? uint256(uint128(-delta.amount1())) : 0;
         
         emit LiquidityAdded(
-            Currency.unwrap(currentOperation.poolKey.currency1),
+            _isYesPool(currentOperation.poolKey) ? yesToken : noToken,
             safeAmount0,
             safeAmount1
         );
@@ -726,17 +784,11 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     
     // Handle removing liquidity in the callback
     function _handleRemoveLiquidity() internal returns (bytes memory) {
-        console2.log("Executing remove liquidity operation in callback");
-        
         (BalanceDelta delta, ) = poolManager.modifyLiquidity(
             currentOperation.poolKey,
             currentOperation.modifyParams,
             ""
         );
-        
-        console2.log("Removed liquidity successfully");
-        console2.log("Delta amount0:", int256(delta.amount0()));
-        console2.log("Delta amount1:", int256(delta.amount1()));
         
         // Process token transfers
         _processBalanceDelta(delta, currentOperation.poolKey);
@@ -755,18 +807,12 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     
     // Handle swap operation in the callback
     function _handleSwap(bytes calldata data) internal returns (uint256 outputAmount) {
-        console2.log("Executing swap operation in callback");
-        
         // Execute the swap
         BalanceDelta delta = poolManager.swap(
             currentOperation.poolKey,
             currentOperation.swapParams,
             data
         );
-        
-        console2.log("Swap executed successfully");
-        console2.log("Delta amount0:", int256(delta.amount0()));
-        console2.log("Delta amount1:", int256(delta.amount1()));
         
         // Determine which tokens are being swapped
         Currency tokenIn;
@@ -856,25 +902,21 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     function claim() external {
         require(resolved, "Outcome not resolved");
         require(!hasClaimed[msg.sender], "Already claimed");
-        console2.log("User claiming rewards:", msg.sender);
-
-        address token = outcomeIsYes ? yesToken : noToken;
-        uint256 userBalance = IERC20(token).balanceOf(msg.sender);
-        console2.log("User balance of winning token:", userBalance);
+        
+        address winningToken = outcomeIsYes ? yesToken : noToken;
+        uint256 userBalance = IERC20(winningToken).balanceOf(msg.sender);
         
         require(userBalance > 0, "No winning tokens");
         
         // Calculate total supply of winning tokens held by users (excluding hook balance)
-        uint256 totalWinningTokens = IERC20(token).totalSupply() - (outcomeIsYes ? hookYesBalance : hookNoBalance);
-        console2.log("Total winning tokens in circulation:", totalWinningTokens);
+        uint256 totalWinningTokens = IERC20(winningToken).totalSupply() - (outcomeIsYes ? hookYesBalance : hookNoBalance);
         
         // Sanity check
         require(totalWinningTokens > 0, "No winners");
         
         // Calculate user's share of the USDC proportional to their token holdings
         uint256 usdcShare = (userBalance * totalUSDCCollected) / totalWinningTokens;
-        console2.log("User's USDC share:", usdcShare);
-
+        
         // Mark as claimed before external calls to prevent reentrancy
         hasClaimed[msg.sender] = true;
         
@@ -885,7 +927,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     
     // Function to get odds of YES/NO outcomes
     function getOdds() external view returns (uint256 yesOdds, uint256 noOdds) {
-        require(block.timestamp >= startTime, "Market not started");
+        require(marketOpen, "Market not started");
         require(!resolved, "Market resolved");
         
         // Calculate total USDC in both pools
@@ -951,5 +993,21 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
             noPoolKey.tickSpacing,
             noPoolKey.hooks
         );
+    }
+
+    /**
+     * @notice Returns the current state of the market
+     * @return isOpen Whether the market is open for trading
+     * @return isClosed Whether the market is closed for trading
+     * @return isResolved Whether the market outcome has been resolved
+     * @return outcome The resolved outcome (only valid if isResolved is true)
+     */
+    function getMarketState() external view returns (
+        bool isOpen,
+        bool isClosed,
+        bool isResolved,
+        bool outcome
+    ) {
+        return (marketOpen, marketClosed, resolved, outcomeIsYes);
     }
 }
