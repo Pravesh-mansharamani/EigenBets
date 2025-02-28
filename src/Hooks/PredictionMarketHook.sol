@@ -30,14 +30,17 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         AddLiquidityYes,
         AddLiquidityNo,
         RemoveLiquidityYes,
-        RemoveLiquidityNo
+        RemoveLiquidityNo,
+        Swap
     }
 
     // Operation context for unlock callback
     struct OperationContext {
         OperationType operationType;
         PoolKey poolKey;
-        IPoolManager.ModifyLiquidityParams params;
+        IPoolManager.ModifyLiquidityParams modifyParams;
+        IPoolManager.SwapParams swapParams;
+        address recipient;
     }
 
     // Current operation context
@@ -60,7 +63,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
 
     bool public resolved;
     bool public outcomeIsYes;
-    uint256 public totalUSDCCollected;  // Renamed to avoid shadowing
+    uint256 public totalUSDCCollected;
     uint256 public hookYesBalance;
     uint256 public hookNoBalance;
     
@@ -71,6 +74,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     event Claimed(address indexed user, uint256 amount);
     event PoolsInitialized(address yesPool, address noPool);
     event LiquidityAdded(address pool, uint256 amount0, uint256 amount1);
+    event SwapExecuted(address user, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut);
 
     constructor(
         IPoolManager _poolManager,
@@ -103,7 +107,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
             beforeRemoveLiquidity: true,
             afterRemoveLiquidity: false,
             beforeSwap: true,
-            afterSwap: true,   // Enable afterSwap to track balances
+            afterSwap: true,
             beforeDonate: false,
             afterDonate: false,
             beforeSwapReturnDelta: false,
@@ -268,9 +272,13 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         
         console2.log("Approving tokens for liquidity provisioning");
         if (!currency0.isAddressZero()) {
+            // Reset approvals to ensure proper approval amounts
+            IERC20(Currency.unwrap(currency0)).approve(address(poolManager), 0);
             IERC20(Currency.unwrap(currency0)).approve(address(poolManager), amount0);
         }
         if (!currency1.isAddressZero()) {
+            // Reset approvals to ensure proper approval amounts
+            IERC20(Currency.unwrap(currency1)).approve(address(poolManager), 0);
             IERC20(Currency.unwrap(currency1)).approve(address(poolManager), amount1);
         }
 
@@ -288,8 +296,8 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         console2.log("Calculated liquidity amount:", uint256(liquidity));
 
         IPoolManager.ModifyLiquidityParams memory params = IPoolManager.ModifyLiquidityParams({
-            tickLower: -887272,
-            tickUpper: 887272,
+            tickLower: -887220,
+            tickUpper: 887220,
             liquidityDelta: int128(liquidity),
             salt: keccak256("prediction_market")
         });
@@ -299,13 +307,25 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
             currentOperation = OperationContext({
                 operationType: OperationType.AddLiquidityYes,
                 poolKey: key,
-                params: params
+                modifyParams: params,
+                swapParams: IPoolManager.SwapParams({
+                    zeroForOne: false,
+                    amountSpecified: 0,
+                    sqrtPriceLimitX96: 0
+                }),
+                recipient: address(0)
             });
         } else {
             currentOperation = OperationContext({
                 operationType: OperationType.AddLiquidityNo,
                 poolKey: key,
-                params: params
+                modifyParams: params,
+                swapParams: IPoolManager.SwapParams({
+                    zeroForOne: false,
+                    amountSpecified: 0,
+                    sqrtPriceLimitX96: 0
+                }),
+                recipient: address(0)
             });
         }
 
@@ -323,13 +343,225 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
                 tickSpacing: 0,
                 hooks: IHooks(address(0))
             }),
-            params: IPoolManager.ModifyLiquidityParams({
+            modifyParams: IPoolManager.ModifyLiquidityParams({
                 tickLower: 0,
                 tickUpper: 0,
                 liquidityDelta: 0,
                 salt: bytes32(0)
-            })
+            }),
+            swapParams: IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: 0,
+                sqrtPriceLimitX96: 0
+            }),
+            recipient: address(0)
         });
+    }
+
+    /**
+     * @notice Swap USDC for YES tokens
+     * @param usdcAmount Amount of USDC to spend
+     * @return tokenAmount Amount of YES tokens received
+     */
+    function swapUSDCForYesTokens(uint256 usdcAmount) external returns (uint256 tokenAmount) {
+        return _swapExactInput(usdc, yesToken, usdcAmount, msg.sender);
+    }
+    
+    /**
+     * @notice Swap USDC for NO tokens
+     * @param usdcAmount Amount of USDC to spend
+     * @return tokenAmount Amount of NO tokens received
+     */
+    function swapUSDCForNoTokens(uint256 usdcAmount) external returns (uint256 tokenAmount) {
+        return _swapExactInput(usdc, noToken, usdcAmount, msg.sender);
+    }
+    
+    /**
+     * @notice Swap YES tokens for USDC
+     * @param tokenAmount Amount of YES tokens to sell
+     * @return usdcAmount Amount of USDC received
+     */
+    function swapYesTokensForUSDC(uint256 tokenAmount) external returns (uint256 usdcAmount) {
+        return _swapExactInput(yesToken, usdc, tokenAmount, msg.sender);
+    }
+    
+    /**
+     * @notice Swap NO tokens for USDC
+     * @param tokenAmount Amount of NO tokens to sell
+     * @return usdcAmount Amount of USDC received
+     */
+    function swapNoTokensForUSDC(uint256 tokenAmount) external returns (uint256 usdcAmount) {
+        return _swapExactInput(noToken, usdc, tokenAmount, msg.sender);
+    }
+    
+    /**
+     * @notice Swap YES tokens for NO tokens
+     * @param yesAmount Amount of YES tokens to swap
+     * @return noAmount Amount of NO tokens received
+     */
+    function swapYesForNoTokens(uint256 yesAmount) external returns (uint256 noAmount) {
+        // First swap YES to USDC
+        uint256 usdcReceived = _swapExactInput(yesToken, usdc, yesAmount, address(this));
+        
+        // Then swap USDC to NO
+        noAmount = _swapExactInput(usdc, noToken, usdcReceived, msg.sender);
+        
+        return noAmount;
+    }
+    
+    /**
+     * @notice Swap NO tokens for YES tokens
+     * @param noAmount Amount of NO tokens to swap
+     * @return yesAmount Amount of YES tokens received
+     */
+    function swapNoForYesTokens(uint256 noAmount) external returns (uint256 yesAmount) {
+        // First swap NO to USDC
+        uint256 usdcReceived = _swapExactInput(noToken, usdc, noAmount, address(this));
+        
+        // Then swap USDC to YES
+        yesAmount = _swapExactInput(usdc, yesToken, usdcReceived, msg.sender);
+        
+        return yesAmount;
+    }
+    
+    /**
+     * @notice Generic swap function that handles any token pair
+     * @param tokenIn Address of input token
+     * @param tokenOut Address of output token
+     * @param amountIn Exact amount of input tokens to swap
+     * @param amountOutMinimum Minimum amount of output tokens to receive
+     * @return amountOut Actual amount of output tokens received
+     */
+    function swap(
+        address tokenIn, 
+        address tokenOut, 
+        uint256 amountIn, 
+        uint256 amountOutMinimum
+    ) external returns (uint256 amountOut) {
+        require(block.timestamp >= startTime && block.timestamp <= endTime, "Market not active");
+        require(!resolved, "Market resolved");
+        
+        // Verify valid token pairs
+        require(
+            (tokenIn == usdc && (tokenOut == yesToken || tokenOut == noToken)) ||
+            ((tokenIn == yesToken || tokenIn == noToken) && tokenOut == usdc) ||
+            (tokenIn == yesToken && tokenOut == noToken) ||
+            (tokenIn == noToken && tokenOut == yesToken),
+            "Invalid token pair"
+        );
+        
+        // If direct swap is possible (USDC<->YES or USDC<->NO)
+        if ((tokenIn == usdc && (tokenOut == yesToken || tokenOut == noToken)) ||
+            ((tokenIn == yesToken || tokenIn == noToken) && tokenOut == usdc)) {
+            amountOut = _swapExactInput(tokenIn, tokenOut, amountIn, msg.sender);
+        } 
+        // For YES<->NO, do a 2-step swap through USDC
+        else {
+            // First swap to USDC
+            uint256 usdcReceived = _swapExactInput(tokenIn, usdc, amountIn, address(this));
+            
+            // Then swap USDC to destination token
+            amountOut = _swapExactInput(usdc, tokenOut, usdcReceived, msg.sender);
+        }
+        
+        require(amountOut >= amountOutMinimum, "Slippage: insufficient output amount");
+        return amountOut;
+    }
+    
+    /**
+     * @dev Internal function to perform an exact input swap
+     * @param tokenIn Address of input token
+     * @param tokenOut Address of output token
+     * @param amountIn Exact amount of input tokens
+     * @param recipient Address to receive output tokens
+     * @return amountOut Amount of output tokens received
+     */
+    function _swapExactInput(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        address recipient
+    ) internal returns (uint256 amountOut) {
+        require(block.timestamp >= startTime && block.timestamp <= endTime, "Market not active");
+        require(!resolved, "Market resolved");
+        
+        // Determine which pool to use
+        PoolKey memory poolKey;
+        if ((tokenIn == usdc && tokenOut == yesToken) || (tokenIn == yesToken && tokenOut == usdc)) {
+            poolKey = yesPoolKey;
+        } else if ((tokenIn == usdc && tokenOut == noToken) || (tokenIn == noToken && tokenOut == usdc)) {
+            poolKey = noPoolKey;
+        } else {
+            revert("Unsupported token pair");
+        }
+        
+        // Determine swap direction
+        bool zeroForOne;
+        if (tokenIn == Currency.unwrap(poolKey.currency0)) {
+            zeroForOne = true;
+        } else {
+            zeroForOne = false;
+        }
+        
+        // Approve token transfers
+        if (tokenIn != address(this)) {
+            // Only approve if the caller is not the contract itself
+            IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
+        }
+        IERC20(tokenIn).approve(address(poolManager), amountIn);
+        
+        // Set up swap params
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: zeroForOne,
+            amountSpecified: int256(amountIn), // Positive = exact input
+            sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+        });
+        
+        // Set operation context for the callback
+        currentOperation = OperationContext({
+            operationType: OperationType.Swap,
+            poolKey: poolKey,
+            modifyParams: IPoolManager.ModifyLiquidityParams({
+                tickLower: 0,
+                tickUpper: 0,
+                liquidityDelta: 0,
+                salt: bytes32(0)
+            }),
+            swapParams: params,
+            recipient: recipient
+        });
+        
+        // Execute the swap in the callback
+        bytes memory swapResult = poolManager.unlock(new bytes(0));
+        
+        // Process outputAmount
+        amountOut = abi.decode(swapResult, (uint256));
+        
+        // Reset operation context
+        currentOperation = OperationContext({
+            operationType: OperationType.None,
+            poolKey: PoolKey({
+                currency0: Currency.wrap(address(0)),
+                currency1: Currency.wrap(address(0)),
+                fee: 0,
+                tickSpacing: 0,
+                hooks: IHooks(address(0))
+            }),
+            modifyParams: IPoolManager.ModifyLiquidityParams({
+                tickLower: 0,
+                tickUpper: 0,
+                liquidityDelta: 0,
+                salt: bytes32(0)
+            }),
+            swapParams: IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: 0,
+                sqrtPriceLimitX96: 0
+            }),
+            recipient: address(0)
+        });
+        
+        return amountOut;
     }
 
     function _isValidPool(PoolKey calldata key) internal view returns (bool) {
@@ -346,12 +578,18 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         currentOperation = OperationContext({
             operationType: OperationType.RemoveLiquidityYes,
             poolKey: yesPoolKey,
-            params: IPoolManager.ModifyLiquidityParams({
-                tickLower: -887272,
-                tickUpper: 887272,
+            modifyParams: IPoolManager.ModifyLiquidityParams({
+                tickLower: -887220,
+                tickUpper: 887220,
                 liquidityDelta: type(int128).min,
                 salt: keccak256("prediction_market")
-            })
+            }),
+            swapParams: IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: 0,
+                sqrtPriceLimitX96: 0
+            }),
+            recipient: address(0)
         });
         
         // Withdraw from YES pool
@@ -365,12 +603,18 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         currentOperation = OperationContext({
             operationType: OperationType.RemoveLiquidityNo,
             poolKey: noPoolKey,
-            params: IPoolManager.ModifyLiquidityParams({
-                tickLower: -887272,
-                tickUpper: 887272,
+            modifyParams: IPoolManager.ModifyLiquidityParams({
+                tickLower: -887220,
+                tickUpper: 887220,
                 liquidityDelta: type(int128).min,
                 salt: keccak256("prediction_market")
-            })
+            }),
+            swapParams: IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: 0,
+                sqrtPriceLimitX96: 0
+            }),
+            recipient: address(0)
         });
         
         // Withdraw from NO pool
@@ -390,16 +634,21 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
                 tickSpacing: 0,
                 hooks: IHooks(address(0))
             }),
-            params: IPoolManager.ModifyLiquidityParams({
+            modifyParams: IPoolManager.ModifyLiquidityParams({
                 tickLower: 0,
                 tickUpper: 0,
                 liquidityDelta: 0,
                 salt: bytes32(0)
-            })
+            }),
+            swapParams: IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: 0,
+                sqrtPriceLimitX96: 0
+            }),
+            recipient: address(0)
         });
 
         // Update state variables - use actual USDC balance instead of reported values
-        // This ensures we only distribute what the contract actually has
         totalUSDCCollected = IERC20(usdc).balanceOf(address(this));
         console2.log("Total USDC collected:", totalUSDCCollected);
         
@@ -417,7 +666,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     }
     
     // Implement the unlockCallback function required by IUnlockCallback
-    function unlockCallback(bytes calldata) external override returns (bytes memory) {
+    function unlockCallback(bytes calldata data) external override returns (bytes memory) {
         // Check that the caller is the PoolManager
         require(msg.sender == address(poolManager), "Unauthorized callback");
         
@@ -426,58 +675,182 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
             return "";
         }
         
-        // Execute operation based on the current context
+        uint256 outputAmount = 0;
+        
+        // Handle liquidity operations
         if (currentOperation.operationType == OperationType.AddLiquidityYes || 
             currentOperation.operationType == OperationType.AddLiquidityNo) {
-            // Add liquidity
-            console2.log("Executing add liquidity operation in callback");
-            
-            (BalanceDelta delta, ) = IPoolManager(address(poolManager)).modifyLiquidity(
-                currentOperation.poolKey,
-                currentOperation.params,
-                ""
-            );
-            
-            console2.log("Added liquidity successfully");
-            console2.log("Delta amount0:", int256(delta.amount0()));
-            console2.log("Delta amount1:", int256(delta.amount1()));
-            
-            emit LiquidityAdded(
-                Currency.unwrap(currentOperation.poolKey.currency1),
-                uint256(int256(-delta.amount0())), // Negate because negative delta means tokens going to pool
-                uint256(int256(-delta.amount1()))  // Negate because negative delta means tokens going to pool
-            );
-            
-            return "";
+            return _handleAddLiquidity();
         } 
         else if (currentOperation.operationType == OperationType.RemoveLiquidityYes || 
                  currentOperation.operationType == OperationType.RemoveLiquidityNo) {
-            // Remove liquidity
-            console2.log("Executing remove liquidity operation in callback");
-            
-            (BalanceDelta delta, ) = IPoolManager(address(poolManager)).modifyLiquidity(
-                currentOperation.poolKey,
-                currentOperation.params,
-                ""
-            );
-            
-            console2.log("Removed liquidity successfully");
-            console2.log("Delta amount0:", int256(delta.amount0()));
-            console2.log("Delta amount1:", int256(delta.amount1()));
-            
-            // Zero out pool balance for the relevant pool
-            if (currentOperation.operationType == OperationType.RemoveLiquidityYes) {
-                usdcInYesPool = 0;
-                yesTokensInPool = 0;
-            } else {
-                usdcInNoPool = 0;
-                noTokensInPool = 0;
-            }
-            
-            return "";
+            return _handleRemoveLiquidity();
+        }
+        else if (currentOperation.operationType == OperationType.Swap) {
+            outputAmount = _handleSwap(data);
+            return abi.encode(outputAmount); // Return the output amount
         }
         
         return "";
+    }
+    
+    // Handle adding liquidity in the callback
+    function _handleAddLiquidity() internal returns (bytes memory) {
+        console2.log("Executing add liquidity operation in callback");
+        
+        (BalanceDelta delta, ) = poolManager.modifyLiquidity(
+            currentOperation.poolKey,
+            currentOperation.modifyParams,
+            ""
+        );
+        
+        console2.log("Added liquidity successfully");
+        console2.log("Delta amount0:", int256(delta.amount0()));
+        console2.log("Delta amount1:", int256(delta.amount1()));
+        
+        // Process token transfers
+        _processBalanceDelta(delta, currentOperation.poolKey);
+        
+        // Safely convert for event emission
+        uint256 safeAmount0 = delta.amount0() < 0 ? uint256(uint128(-delta.amount0())) : 0;
+        uint256 safeAmount1 = delta.amount1() < 0 ? uint256(uint128(-delta.amount1())) : 0;
+        
+        emit LiquidityAdded(
+            Currency.unwrap(currentOperation.poolKey.currency1),
+            safeAmount0,
+            safeAmount1
+        );
+        
+        return "";
+    }
+    
+    // Handle removing liquidity in the callback
+    function _handleRemoveLiquidity() internal returns (bytes memory) {
+        console2.log("Executing remove liquidity operation in callback");
+        
+        (BalanceDelta delta, ) = poolManager.modifyLiquidity(
+            currentOperation.poolKey,
+            currentOperation.modifyParams,
+            ""
+        );
+        
+        console2.log("Removed liquidity successfully");
+        console2.log("Delta amount0:", int256(delta.amount0()));
+        console2.log("Delta amount1:", int256(delta.amount1()));
+        
+        // Process token transfers
+        _processBalanceDelta(delta, currentOperation.poolKey);
+        
+        // Zero out pool balance for the relevant pool
+        if (currentOperation.operationType == OperationType.RemoveLiquidityYes) {
+            usdcInYesPool = 0;
+            yesTokensInPool = 0;
+        } else {
+            usdcInNoPool = 0;
+            noTokensInPool = 0;
+        }
+        
+        return "";
+    }
+    
+    // Handle swap operation in the callback
+    function _handleSwap(bytes calldata data) internal returns (uint256 outputAmount) {
+        console2.log("Executing swap operation in callback");
+        
+        // Execute the swap
+        BalanceDelta delta = poolManager.swap(
+            currentOperation.poolKey,
+            currentOperation.swapParams,
+            data
+        );
+        
+        console2.log("Swap executed successfully");
+        console2.log("Delta amount0:", int256(delta.amount0()));
+        console2.log("Delta amount1:", int256(delta.amount1()));
+        
+        // Determine which tokens are being swapped
+        Currency tokenIn;
+        Currency tokenOut;
+        uint256 amountIn;
+        uint256 amountOut;
+        
+        if (currentOperation.swapParams.zeroForOne) {
+            tokenIn = currentOperation.poolKey.currency0;
+            tokenOut = currentOperation.poolKey.currency1;
+            amountIn = uint256(uint128(-delta.amount0()));
+            amountOut = uint256(uint128(delta.amount1()));
+        } else {
+            tokenIn = currentOperation.poolKey.currency1;
+            tokenOut = currentOperation.poolKey.currency0;
+            amountIn = uint256(uint128(-delta.amount1()));
+            amountOut = uint256(uint128(delta.amount0()));
+        }
+        
+        // Transfer token in to pool
+        IERC20(Currency.unwrap(tokenIn)).transfer(
+            address(poolManager),
+            amountIn
+        );
+        
+        // Settle with the pool
+        poolManager.settle();
+        
+        // Take token out from pool to recipient
+        address recipient = currentOperation.recipient == address(0) ? msg.sender : currentOperation.recipient;
+        poolManager.take(tokenOut, recipient, amountOut);
+        
+        emit SwapExecuted(
+            recipient,
+            Currency.unwrap(tokenIn),
+            Currency.unwrap(tokenOut),
+            amountIn,
+            amountOut
+        );
+        
+        return amountOut;
+    }
+    
+    // Helper function to process balance delta and handle token transfers
+    function _processBalanceDelta(BalanceDelta delta, PoolKey memory key) internal {
+        // For negative delta amounts, transfer tokens TO the PoolManager
+        if (delta.amount0() < 0) {
+            int128 absAmount0 = -delta.amount0();
+            uint256 transferAmount0 = uint256(uint128(absAmount0));
+            Currency currency0 = key.currency0;
+            
+            poolManager.sync(currency0);
+            IERC20(Currency.unwrap(currency0)).safeTransfer(
+                address(poolManager), 
+                transferAmount0
+            );
+            poolManager.settle();
+        }
+        
+        if (delta.amount1() < 0) {
+            int128 absAmount1 = -delta.amount1();
+            uint256 transferAmount1 = uint256(uint128(absAmount1));
+            Currency currency1 = key.currency1;
+            
+            poolManager.sync(currency1);
+            IERC20(Currency.unwrap(currency1)).safeTransfer(
+                address(poolManager), 
+                transferAmount1
+            );
+            poolManager.settle();
+        }
+        
+        // For positive delta amounts, take tokens FROM the PoolManager
+        if (delta.amount0() > 0) {
+            Currency currency0 = key.currency0;
+            uint256 amount0 = uint256(uint128(delta.amount0()));
+            poolManager.take(currency0, address(this), amount0);
+        }
+        
+        if (delta.amount1() > 0) {
+            Currency currency1 = key.currency1;
+            uint256 amount1 = uint256(uint128(delta.amount1()));
+            poolManager.take(currency1, address(this), amount1);
+        }
     }
 
     function claim() external {
@@ -492,7 +865,6 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         require(userBalance > 0, "No winning tokens");
         
         // Calculate total supply of winning tokens held by users (excluding hook balance)
-        // For the winning token, the hook keeps track of how many tokens it had before resolution
         uint256 totalWinningTokens = IERC20(token).totalSupply() - (outcomeIsYes ? hookYesBalance : hookNoBalance);
         console2.log("Total winning tokens in circulation:", totalWinningTokens);
         
@@ -511,7 +883,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         emit Claimed(msg.sender, usdcShare);
     }
     
-    // Fixed getOdds function that uses tracked state variables
+    // Function to get odds of YES/NO outcomes
     function getOdds() external view returns (uint256 yesOdds, uint256 noOdds) {
         require(block.timestamp >= startTime, "Market not started");
         require(!resolved, "Market resolved");
@@ -559,7 +931,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         return (yesPrice, noPrice);
     }
     
-    // helper function to properly expose pool key components
+    // Helper function to properly expose pool key components
     function getYesPoolKeyComponents() public view returns (Currency, Currency, uint24, int24, IHooks) {
         return (
             yesPoolKey.currency0,
@@ -570,7 +942,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         );
     }
     
-    // helper function to properly expose pool key components
+    // Helper function to properly expose pool key components
     function getNoPoolKeyComponents() public view returns (Currency, Currency, uint24, int24, IHooks) {
         return (
             noPoolKey.currency0,
