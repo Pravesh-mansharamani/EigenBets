@@ -221,10 +221,10 @@ The AMM ensures continuous trading and odds reflection based on betting activity
 - **Coinbase Onramp Integration**: Complete the fiat onramp integration with Coinbase to allow users to directly purchase crypto for betting.
 - **Additional Verification Methods**: Expand AVS capabilities to include more data sources such as news APIs, financial data providers, and sports results.
 - **Multi-outcome Markets**: Support for markets with more than binary outcomes (e.g., multiple choice options or range predictions).
-- **DAO Governance**: Community governance for market creation, fee distribution, and dispute resolution through a token-based voting system.
 - **Advanced Analytics**: Enhanced data visualization, market analytics, and prediction history tracking for users to improve their betting strategies.
 - **Mobile App Store Release**: iOS App Store and Google Play Store releases with push notifications for market updates.
 - **Layer 2 Expansion**: Support for additional Layer 2 networks to reduce transaction costs and increase speed.
 - **Social Features**: Integration of social sharing, following other bettors, and community discussion boards.
+- **Chainlink Integration**: Integration of chainlink as another data source
 
 ---
