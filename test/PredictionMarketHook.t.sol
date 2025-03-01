@@ -88,6 +88,31 @@ contract PredictionMarketHookTests is Test {
         
         // Setup test users with funds
         setupTestUsers();
+
+        // Ensure the market is open
+        if (!hook.marketOpen() && !hook.marketClosed() && !hook.resolved()) {
+            // Open the market if it's not already open
+            vm.startPrank(owner);
+            hook.openMarket();
+            vm.stopPrank();
+            console2.log("Market opened for testing");
+            
+            // Set new start and end times from the contract
+            startTime = block.timestamp;
+            endTime = block.timestamp + 7 days; // Assuming market lasts 7 days
+        }
+        
+        // Make sure current time is within the active market period
+        timeWarpToActiveMarket();
+        
+        // Log market state after setup
+        console2.log("Market state after setup:");
+        console2.log("  Market open:", hook.marketOpen());
+        console2.log("  Market closed:", hook.marketClosed());
+        console2.log("  Market resolved:", hook.resolved());
+        console2.log("  Current time:", block.timestamp);
+        console2.log("  Start time:", startTime);
+        console2.log("  End time:", endTime);
     }
     
     function setupTestUsers() public {
