@@ -112,6 +112,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         
         marketOpen = true;
         startTime = block.timestamp;
+        endTime = block.timestamp + 7 days;
         emit MarketOpened();
     }
     

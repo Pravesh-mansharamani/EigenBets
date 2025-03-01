@@ -217,7 +217,7 @@ class _LandingPageState extends State<LandingPage> with TickerProviderStateMixin
               ),
               const SizedBox(width: 8),
               Text(
-                'Nexus Predictions',
+                'EigenBets',
                 style: theme.textTheme.titleLarge?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
