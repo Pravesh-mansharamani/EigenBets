@@ -7,3 +7,4 @@ forge-std/=lib/forge-std/src/
 permit2/=lib/v4-periphery/lib/permit2/
 @uniswap/v4-periphery/=lib/v4-periphery/
 @uniswap-hooks/=lib/uniswap-hooks/
+@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/
