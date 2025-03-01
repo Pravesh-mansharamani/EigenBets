@@ -9,7 +9,7 @@ import 'package:flutter/foundation.dart';
 
 class PredictionMarketService {
   // Contract address
-  final String contractAddress = '0xD35EEf48A8b2eFE557390845Ce0D94d91A378AC0';
+  final String contractAddress = '0x5a1df3b6FAcBBe873a26737d7b1027Ad47834AC0';
   
   // RPC URL - replace with your own Ethereum node URL or Infura
   final String rpcUrl = 'YOUR_RPC_URL';

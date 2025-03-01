@@ -8,7 +8,10 @@ This project implements a decentralized prediction market platform with three co
 
 3. **Cross-Platform Frontend**: A Flutter-based mobile and web application that provides an intuitive interface for interacting with prediction markets, managing wallets, and viewing market data.
 
-- **Deployed Hook Address**: [0xd35eef48a8b2efe557390845ce0d94d91a378ac0](https://sepolia.basescan.org/address/0xd35eef48a8b2efe557390845ce0d94d91a378ac0)
+- **Deployed Hook Address (Unichain Sepolia)**: [0x5a1df3b6FAcBBe873a26737d7b1027Ad47834AC0](https://unichain-sepolia.blockscout.com/address/0x5a1df3b6FAcBBe873a26737d7b1027Ad47834AC0)
+
+
+- **Deployed Hook Address (Base Sepolia)**: [0xd35eef48a8b2efe557390845ce0d94d91a378ac0](https://sepolia.basescan.org/address/0xd35eef48a8b2efe557390845ce0d94d91a378ac0)
 
 ---
 
