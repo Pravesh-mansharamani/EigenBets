@@ -35,7 +35,7 @@ contract DeployPredictionMarketScript is Script {
             Hooks.AFTER_SWAP_FLAG
         );
 
-        address poolManagerAddress = vm.envOr("POOL_MANAGER_ADDRESS", address(0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408));
+        address poolManagerAddress = vm.envOr("POOL_MANAGER_ADDRESS", address(0x00B036B58a818B1BC34d502D3fE730Db729e62AC));
         console.log("PoolManager:", poolManagerAddress);
 
         address create2Deployer = vm.envOr("CREATE2_DEPLOYER_ADDRESS", address(0x4e59b44847b379578588920cA78FbF26c0B4956C));

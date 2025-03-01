@@ -57,6 +57,9 @@ contract PredictionMarketHookTests is Test {
         yesTokenAddress = hook.yesToken();
         noTokenAddress = hook.noToken();
         poolManagerAddress = address(hook.poolManager());
+        bool marketOpen = hook.marketOpen();
+        bool marketClosed = hook.marketClosed();
+        bool resolved = hook.resolved();
         startTime = hook.startTime();
         endTime = hook.endTime();
         owner = hook.checkOwner();
@@ -175,8 +178,6 @@ contract PredictionMarketHookTests is Test {
         console2.log("USDC address:", usdcAddress);
         console2.log("YES token address:", yesTokenAddress);
         console2.log("NO token address:", noTokenAddress);
-        console2.log("Start time:", startTime);
-        console2.log("End time:", endTime);
         
         address contractOwner = hook.checkOwner();
         console2.log("Owner:", contractOwner);

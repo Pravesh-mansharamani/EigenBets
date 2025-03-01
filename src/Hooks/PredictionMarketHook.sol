@@ -28,6 +28,8 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
     bool public marketClosed;
     bool public resolved;
     bool public outcomeIsYes;
+    uint256 public startTime;
+    uint256 public endTime;
 
     // Operation types for unlock callback handling
     enum OperationType {
@@ -109,6 +111,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         require(!resolved, "Market already resolved");
         
         marketOpen = true;
+        startTime = block.timestamp;
         emit MarketOpened();
     }
     
@@ -121,6 +124,7 @@ contract PredictionMarketHook is BaseHook, Ownable, IUnlockCallback {
         require(!marketClosed, "Market already closed");
         
         marketClosed = true;
+        endTime = block.timestamp;
         emit MarketClosed();
     }
     
