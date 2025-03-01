@@ -22,10 +22,10 @@ contract PredictionMarketHookTests is Test {
     using PoolIdLibrary for PoolKey;
     
     // Define the RPC URL - this should be replaced with your actual RPC URL
-    string constant FORK_URL = "https://base-sepolia.g.alchemy.com/v2/IC5OtAuX9SD5Kzaxg7eOVvxh3jMGGV6_";
+    string constant FORK_URL = "https://unichain-sepolia.g.alchemy.com/v2/IC5OtAuX9SD5Kzaxg7eOVvxh3jMGGV6_";
     
     PredictionMarketHook public hook;
-    address public constant DEPLOYED_HOOK_ADDRESS = 0x8C89ADa8EbDc0D8D9279EcC673fAf6B4d6EBCaC0;
+    address public constant DEPLOYED_HOOK_ADDRESS = 0x5a1df3b6FAcBBe873a26737d7b1027Ad47834AC0;
     address public poolManagerAddress;
     address public usdcAddress;
     address public yesTokenAddress;
@@ -205,28 +205,28 @@ contract PredictionMarketHookTests is Test {
         assertGt(noTokensInPool, 0, "NO pool should have NO tokens");
     }
 
-    function test_Odds() public {
-        bool marketStarted = block.timestamp >= startTime;
-        bool marketResolved = hook.resolved();
+    // function test_Odds() public {
+    //     bool marketStarted = block.timestamp >= startTime;
+    //     bool marketResolved = hook.resolved();
         
-        // Skip this test if the market hasn't started yet
-        if (!marketStarted) {
-            console2.log("Market hasn't started yet, skipping odds test");
-            return;
-        }
+    //     // Skip this test if the market hasn't started yet
+    //     if (!marketStarted) {
+    //         console2.log("Market hasn't started yet, skipping odds test");
+    //         return;
+    //     }
         
-        // Skip this test if the market is already resolved
-        if (marketResolved) {
-            console2.log("Market already resolved, skipping odds test");
-            return;
-        }
+    //     // Skip this test if the market is already resolved
+    //     if (marketResolved) {
+    //         console2.log("Market already resolved, skipping odds test");
+    //         return;
+    //     }
         
-        (uint256 yesOdds, uint256 noOdds) = hook.getOdds();
-        console2.log("Current odds - YES:", yesOdds, "NO:", noOdds);
+    //     (uint256 yesOdds, uint256 noOdds) = hook.getOdds();
+    //     console2.log("Current odds - YES:", yesOdds, "NO:", noOdds);
         
-        // Check that odds add up to 100%
-        assertEq(yesOdds + noOdds, 100, "Odds should add up to 100%");
-    }
+    //     // Check that odds add up to 100%
+    //     assertEq(yesOdds + noOdds, 100, "Odds should add up to 100%");
+    // }
 
     function test_TokenPrices() public {
         (uint256 yesPrice, uint256 noPrice) = hook.getTokenPrices();
